@@ -24,6 +24,7 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
   - [Table of Contents](#table-of-contents)
   - [1) How it works (end-to-end)](#1-how-it-works-end-to-end)
     - [Architecture diagram](#architecture-diagram)
+    - [Refinement (DPO)](#refinement-dpo)
   - [2) Reliability and retry strategy](#2-reliability-and-retry-strategy)
     - [`reflex_reviewer/vcs/bitbucket_vcs.py`](#reflex_reviewervcsbitbucket_vcspy)
     - [`reflex_reviewer/litellm_client.py`](#reflex_reviewerlitellm_clientpy)
@@ -95,7 +96,22 @@ flowchart TB
    - Splits into train/validation sets (`train.jsonl`, `val.jsonl`) under `--dpo-training-data-dir` and starts DPO fine-tuning
    - Polls fine-tune job until terminal state
    - Clears temp cache only on successful completion
-   - Note: For refine/fine-tuning workflows, ensure your selected model/backend supports both fine-tuning endpoints and file upload endpoints.
+
+### Refinement (DPO)
+
+**What is DPO?**
+
+Direct Preference Optimization (DPO) is a preference-learning method that trains a model from ranked pairs (chosen vs. rejected responses), without requiring a separate reward model or a full RL optimization loop.
+
+**Why is DPO preferred here?**
+
+- It maps directly to Reflex Reviewer’s distilled feedback signals (`ACCEPTED` vs `REJECTED`).
+- It is operationally simpler than RLHF-style training pipelines, which makes scheduled refinement easier to maintain.
+- It provides targeted behavior updates from reviewer preferences while preserving the base model’s general capabilities.
+
+**Compatibility note**
+
+For refine/fine-tuning workflows, ensure your selected model/backend supports both fine-tuning endpoints and file upload endpoints.
 
 ---
 
