@@ -231,12 +231,12 @@ Build backend: this project uses **Hatchling** via `pyproject.toml`.
 Published TestPyPI release (v0.1.0):
 - https://test.pypi.org/project/reflex-reviewer/0.1.0/
 
-- Install locally: `pip install -e .`
+- Install locally: `pip install .`
 
-Optional package build validation:
+Optional wheel build validation:
 
 ```bash
-python3 -m build
+python3 -m build --wheel
 ```
 
 ### Install from TestPyPI (v0.1.0)
@@ -261,10 +261,10 @@ pip install ".[publish]"
 Build and upload:
 
 ```bash
-python3 -m build
+python3 -m build --wheel
 TWINE_USERNAME=__token__ \
 TWINE_PASSWORD="<TESTPYPI_TOKEN>" \
-python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*.whl
 ```
 
 ```python
@@ -309,7 +309,7 @@ Run commands from project root (contains `pyproject.toml` and `README.md`).
 Install locally:
 
 ```bash
-pip install -e .
+pip install .
 ```
 
 Optional local env bootstrap:
@@ -362,7 +362,7 @@ If you clone this repo as shared tooling in another pipeline:
 
 ```yaml
 - git clone https://bitbucket.org/<workspace>/reflex-reviewer.git reflex-reviewer
-- pip install -e reflex-reviewer
+- pip install ./reflex-reviewer
 ```
 
 After installing packages, bootstrap your env file from `.env.example`:

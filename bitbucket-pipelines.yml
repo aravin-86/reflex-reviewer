@@ -15,7 +15,7 @@ pipelines:
             - test -n "$PRIMARY_MODEL" || (echo "PRIMARY_MODEL is required" && exit 1)
             - test -n "$TEAM_NAME" || (echo "TEAM_NAME is required" && exit 1)
             - git clone "$AI_CODE_REVIEW_AGENT_REPO" reflex-reviewer
-            - pip install -e reflex-reviewer
+            - pip install ./reflex-reviewer
             - python -m reflex_reviewer.review --team-name "$TEAM_NAME" --primary-model "$PRIMARY_MODEL"
           services:
             - docker
@@ -32,7 +32,7 @@ pipelines:
             - test -n "$PRIMARY_MODEL" || (echo "PRIMARY_MODEL is required" && exit 1)
             - test -n "$TEAM_NAME" || (echo "TEAM_NAME is required" && exit 1)
             - git clone "$AI_CODE_REVIEW_AGENT_REPO" reflex-reviewer
-            - pip install -e reflex-reviewer
+            - pip install ./reflex-reviewer
             - python -m reflex_reviewer.distill --team-name "$TEAM_NAME" --primary-model "$PRIMARY_MODEL" --dpo-training-data-dir "data"
 
   custom:
@@ -46,5 +46,5 @@ pipelines:
             - test -n "$PRIMARY_MODEL" || (echo "PRIMARY_MODEL is required" && exit 1)
             - test -n "$TEAM_NAME" || (echo "TEAM_NAME is required" && exit 1)
             - git clone "$AI_CODE_REVIEW_AGENT_REPO" reflex-reviewer
-            - pip install -e reflex-reviewer
+            - pip install ./reflex-reviewer
             - python -m reflex_reviewer.refine --team-name "$TEAM_NAME" --primary-model "$PRIMARY_MODEL" --dpo-training-data-dir "data"
