@@ -95,6 +95,7 @@ flowchart TB
    - Splits into train/validation sets (`train.jsonl`, `val.jsonl`) under `--dpo-training-data-dir` and starts DPO fine-tuning
    - Polls fine-tune job until terminal state
    - Clears temp cache only on successful completion
+   - Note: For refine/fine-tuning workflows, ensure your selected model/backend supports both fine-tuning endpoints and file upload endpoints.
 
 ---
 
