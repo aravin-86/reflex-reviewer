@@ -247,7 +247,7 @@ Use TestPyPI as the primary index and PyPI as a fallback for dependencies:
 pip install \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  reflex-reviewer==0.1.0
+  reflex-reviewer
 ```
 
 ### Publish to TestPyPI with Twine
