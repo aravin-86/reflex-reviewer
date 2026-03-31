@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reflex-reviewer"
+version = "0.1.0"
+description = "Automated AI code review loop for VCS pull requests"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "openai>=1.0.0",
+  "requests>=2.31.0",
+  "tenacity>=8.2.0",
+  "python-dotenv>=1.0.1",
+  "tomli>=2.0.1; python_version < '3.11'",
+  "authlib>=1.0.0",
+]
+
+[project.scripts]
+reflex-review = "reflex_reviewer.review:run"
+reflex-distill = "reflex_reviewer.distill:run"
+reflex-refine = "reflex_reviewer.refine:run"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["reflex_reviewer*"]
+
+[tool.setuptools.package-data]
+reflex_reviewer = ["prompts/*.md"]

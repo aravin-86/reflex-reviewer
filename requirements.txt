@@ -1,0 +1,5 @@
+openai>=1.0.0
+requests>=2.31.0
+tenacity>=8.2.0
+python-dotenv>=1.0.1
+authlib>=1.0.0
