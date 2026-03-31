@@ -19,3 +19,4 @@ val.jsonl
 scripts/*
 data/*
 *.egg-info
+dist/

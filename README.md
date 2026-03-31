@@ -32,6 +32,8 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
   - [6) VCS pipeline hooks](#6-vcs-pipeline-hooks)
     - [Bitbucket-specific reference](#bitbucket-specific-reference)
   - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
+    - [Install from TestPyPI (v0.1.0)](#install-from-testpypi-v010)
+    - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
   - [8) Local run examples](#8-local-run-examples)
   - [9) Reuse from another repository](#9-reuse-from-another-repository)
   - [10) Notes / limitations](#10-notes--limitations)
@@ -224,7 +226,46 @@ For a concrete Bitbucket implementation, see: **`bitbucket-pipelines.yml`**.
 
 This repository is organized as a Python package: `reflex_reviewer`.
 
+Build backend: this project uses **Hatchling** via `pyproject.toml`.
+
+Published TestPyPI release (v0.1.0):
+- https://test.pypi.org/project/reflex-reviewer/0.1.0/
+
 - Install locally: `pip install -e .`
+
+Optional package build validation:
+
+```bash
+python3 -m build
+```
+
+### Install from TestPyPI (v0.1.0)
+
+Use TestPyPI as the primary index and PyPI as a fallback for dependencies:
+
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  reflex-reviewer==0.1.0
+```
+
+### Publish to TestPyPI with Twine
+
+Install packaging/publish tooling:
+
+```bash
+pip install ".[publish]"
+```
+
+Build and upload:
+
+```bash
+python3 -m build
+TWINE_USERNAME=__token__ \
+TWINE_PASSWORD="<TESTPYPI_TOKEN>" \
+python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+```
 
 ```python
 import reflex_reviewer

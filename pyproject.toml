@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24.2"]
+build-backend = "hatchling.build"
 
 [project]
 name = "reflex-reviewer"
@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Automated AI code review loop for VCS pull requests"
 readme = "README.md"
 requires-python = ">=3.9"
+keywords = ["ai", "code-review", "automation", "devtools"]
 dependencies = [
   "openai>=1.0.0",
   "requests>=2.31.0",
@@ -17,16 +18,25 @@ dependencies = [
   "authlib>=1.0.0",
 ]
 
+[project.optional-dependencies]
+publish = [
+  "build>=1.2.2",
+  "twine>=5.1.1",
+]
+
+[project.urls]
+Repository = "https://github.com/aravin-86/reflex-reviewer"
+"TestPyPI Release" = "https://test.pypi.org/project/reflex-reviewer/0.1.0/"
+
 [project.scripts]
 reflex-review = "reflex_reviewer.review:run"
 reflex-distill = "reflex_reviewer.distill:run"
 reflex-refine = "reflex_reviewer.refine:run"
 
-[tool.setuptools]
-include-package-data = true
+[tool.hatch.build]
+include = [
+  "reflex_reviewer/prompts/*.md",
+]
 
-[tool.setuptools.packages.find]
-include = ["reflex_reviewer*"]
-
-[tool.setuptools.package-data]
-reflex_reviewer = ["prompts/*.md"]
+[tool.hatch.build.targets.wheel]
+packages = ["reflex_reviewer"]
