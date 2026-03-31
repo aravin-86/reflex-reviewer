@@ -32,7 +32,7 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
   - [6) VCS pipeline hooks](#6-vcs-pipeline-hooks)
     - [Bitbucket-specific reference](#bitbucket-specific-reference)
   - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
-    - [Install from TestPyPI (v0.1.0)](#install-from-testpypi-v010)
+    - [Install from TestPyPI](#install-from-testpypi)
     - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
   - [8) Local run examples](#8-local-run-examples)
   - [9) Reuse from another repository](#9-reuse-from-another-repository)
@@ -229,7 +229,7 @@ This repository is organized as a Python package: `reflex_reviewer`.
 Build backend: this project uses **Hatchling** via `pyproject.toml`.
 
 Published TestPyPI release (v0.1.0):
-- https://test.pypi.org/project/reflex-reviewer/0.1.0/
+- https://test.pypi.org/project/reflex-reviewer/
 
 - Install locally: `pip install .`
 
@@ -239,7 +239,7 @@ Optional wheel build validation:
 python3 -m build --wheel
 ```
 
-### Install from TestPyPI (v0.1.0)
+### Install from TestPyPI
 
 Use TestPyPI as the primary index and PyPI as a fallback for dependencies:
 
