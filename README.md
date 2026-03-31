@@ -228,7 +228,7 @@ This repository is organized as a Python package: `reflex_reviewer`.
 
 Build backend: this project uses **Hatchling** via `pyproject.toml`.
 
-Published TestPyPI release (v0.1.0):
+Published TestPyPI release:
 - https://test.pypi.org/project/reflex-reviewer/
 
 - Install locally: `pip install .`
