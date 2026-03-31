@@ -322,8 +322,32 @@ If you clone this repo as shared tooling in another pipeline:
 ```yaml
 - git clone https://bitbucket.org/<workspace>/reflex-reviewer.git reflex-reviewer
 - pip install -e reflex-reviewer
-- python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"
 ```
+
+After installing packages, bootstrap your env file from `.env.example`:
+
+```bash
+cp reflex-reviewer/.env.example .env
+```
+
+Then update `.env` with your runtime values:
+
+- VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
+- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `PRIMARY_MODEL`.
+- Auth (choose one):
+  - Set `LITELLM_API_KEY`, **or**
+  - Leave `LITELLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
+- Optional runtime toggles: `STREAM_RESPONSE`, `MODEL_ENDPOINT`, `LITELLM_REASONING_EFFORT`.
+
+If your shell/pipeline does not auto-load `.env`, export it before running commands:
+
+```bash
+set -a; source .env; set +a
+```
+
+Run review:
+
+- `python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"`
 
 Post-merge and scheduled jobs:
 - `python3 -m reflex_reviewer.distill --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
