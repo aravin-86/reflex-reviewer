@@ -36,9 +36,9 @@ pipelines:
             - python -m reflex_reviewer.distill --team-name "$TEAM_NAME" --primary-model "$PRIMARY_MODEL" --dpo-training-data-dir "data"
 
   custom:
-    weekly-dpo-fine-tune:
+    monthly-dpo-fine-tune:
       - step:
-          name: "Weekly GPT-5.4 mini DPO Fine-Tuning (Shared Repo via Clone)"
+          name: "Monthly/On-Demand GPT-5.4 mini DPO Fine-Tuning (Shared Repo via Clone)"
           # Set fail-fast to false as fine-tuning is non-critical Code Review
           fail-fast: false
           script:

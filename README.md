@@ -5,7 +5,7 @@ Reflex Reviewer is an **automated AI code review** system for pull requests (PRs
 It runs as a self-improving loop:
 - review PRs,
 - collect human feedback on review comments,
-- periodically refine behavior with DPO-based training signals.
+- refine behavior monthly or on-demand with DPO-based training signals.
 
 Reflex Reviewer is an **agentic ecosystem** with three collaborating flows: review (actuator), distill (observer), and refine (optimizer).
 
@@ -29,8 +29,10 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
     - [`reflex_reviewer/vcs/bitbucket_vcs.py`](#reflex_reviewervcsbitbucket_vcspy)
     - [`reflex_reviewer/litellm_client.py`](#reflex_reviewerlitellm_clientpy)
   - [5) Runtime configuration (CLI)](#5-runtime-configuration-cli)
-  - [6) VCS pipeline hooks](#6-vcs-pipeline-hooks)
-    - [Bitbucket-specific reference](#bitbucket-specific-reference)
+  - [6) VCS pipeline steps](#6-vcs-pipeline-steps)
+    - [Build Pipeline step scripts (repository-committed)](#build-pipeline-step-scripts-repository-committed)
+    - [Best-practice Build Pipeline step architecture](#best-practice-build-pipeline-step-architecture)
+    - [Bitbucket Cloud-specific reference](#bitbucket-cloud-specific-reference)
   - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
     - [Install from TestPyPI](#install-from-testpypi)
     - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
@@ -62,7 +64,7 @@ flowchart TB
       distill["distill.py<br/>Distill (Observer)"]
       data["DPO preference dataset"]
       refine["refine.py<br/>Refine (Optimizer)"]
-      scheduler["Scheduler<br/>(weekly/custom schedule)"]
+      scheduler["Scheduler<br/>(monthly schedule / on-demand)"]
     end
 
     repo --> pipelineHooks
@@ -72,7 +74,7 @@ flowchart TB
     feedback --> distill
     pipelineHooks -->|Post-merge trigger| distill
     distill --> data
-    scheduler -->|Weekly/custom schedule| refine
+    scheduler -->|Monthly schedule / on-demand| refine
     data --> refine
     refine -->|Improved model behavior| review
 
@@ -108,7 +110,7 @@ Direct Preference Optimization (DPO) is a preference-learning method that trains
 **Why is DPO preferred here?**
 
 - It maps directly to Reflex Reviewer’s distilled feedback signals (`ACCEPTED` vs `REJECTED`).
-- It is operationally simpler than RLHF-style training pipelines, which makes scheduled refinement easier to maintain.
+- It is operationally simpler than RLHF-style training pipelines, which makes monthly/on-demand refinement easier to maintain.
 - It provides targeted behavior updates from reviewer preferences while preserving the base model’s general capabilities.
 
 **Compatibility note**
@@ -200,25 +202,140 @@ For all environment variables, default values, and env interpolation behavior, r
 
 ---
 
-## 6) VCS pipeline hooks
+## 6) VCS pipeline steps
 
-Reflex Reviewer is designed around three generic pipeline hook types:
+Reflex Reviewer is designed around three generic pipeline step trigger types:
 
-1. **PR hook (create/update)**
+1. **PR create/update pipeline step**
    - Runs review flow:
    - `python3 -m reflex_reviewer.review --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"`
 
-2. **Post-merge hook (target branch updates)**
+2. **Post-merge pipeline step (target branch updates)**
    - Runs distill flow:
    - `python3 -m reflex_reviewer.distill --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 
-3. **Scheduled/manual hook**
+3. **Monthly/on-demand pipeline step**
    - Runs refine flow:
    - `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 
-### Bitbucket-specific reference
+### Build Pipeline step scripts (repository-committed)
 
-For a concrete Bitbucket implementation, see: **`bitbucket-pipelines.yml`**.
+Commit these scripts in your repository and invoke them from build pipeline steps.
+
+This repository includes Build Pipeline-oriented shell wrappers under:
+
+- `scripts/build-pipeline/review-step.sh`
+- `scripts/build-pipeline/distill-step.sh`
+- `scripts/build-pipeline/refine-step.sh`
+
+Shared helper:
+
+- `scripts/build-pipeline/common.sh`
+
+Runtime bootstrap utility:
+
+- `scripts/build-pipeline/setup-pipeline-runtime.sh`
+
+What each script runs:
+
+- `review-step.sh` → `python3 -m reflex_reviewer.review ... --pr-id <PR_ID>`
+- `distill-step.sh` → `python3 -m reflex_reviewer.distill ... --pr-id <PR_ID> --dpo-training-data-dir <DIR>`
+- `refine-step.sh` → `python3 -m reflex_reviewer.refine ... --dpo-training-data-dir <DIR>`
+
+PR id resolution (`review-step.sh` and `distill-step.sh`) follows this order:
+
+1. first positional argument
+2. `PR_ID`
+3. `VCS_PR_ID`
+4. `BITBUCKET_PR_ID`
+5. `BITBUCKET_PULL_REQUEST_ID`
+6. `PULL_REQUEST_ID`
+
+Required environment variables:
+
+- `RR_REPOSITORY_CLONE_URL`
+- `TEAM_NAME`
+- `PRIMARY_MODEL`
+- `VCS_BASE_URL`
+- `VCS_PROJECT_KEY`
+- `VCS_REPO_SLUG`
+- `VCS_TOKEN`
+- `DPO_TRAINING_DATA_DIR` (required by `distill-step.sh` and `refine-step.sh`)
+
+LiteLLM auth configuration (choose one):
+
+- `LITELLM_API_KEY`, or
+- `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
+
+Optional:
+
+- `RR_REPOSITORY_DIR` (defaults to `<cwd>/.reflex-reviewer-clone`)
+- `RR_REPOSITORY_REF` (optional branch/tag passed to `git clone --branch`)
+- `PYTHON_BIN` (defaults to `<repo>/.build-pipeline-venv/bin/python` when present, else `python3`)
+- `RR_VENV_DIR` (defaults to `<repo>/.build-pipeline-venv`)
+
+Build Pipeline clone behavior:
+
+- Build Pipeline scripts clone the configured remote repository before flow execution.
+- If `RR_REPOSITORY_DIR` already exists, it is removed and cloned again to keep checkout state simple and deterministic.
+- The script then re-executes from the cloned repository's `scripts/build-pipeline/` path.
+
+Runtime bootstrap for pipeline runner hosts:
+
+```bash
+# Create/update dedicated venv and install Python dependencies from requirements.txt
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+
+# Optional custom venv location
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
+```
+
+What setup validates:
+
+- Python 3.9+
+- importability of runtime modules (`openai`, `requests`, `tenacity`, `dotenv`, `authlib`)
+- `reflex_reviewer` package import from repository root
+
+Each pipeline step script performs fail-fast checks before execution:
+
+- repository layout checks (`requirements.txt`, `reflex_reviewer/`)
+- runtime import checks for required Python modules
+- data directory creation/writability checks for distill/refine
+
+Example invocations:
+
+```bash
+# PR event pipeline step
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/review-step.sh 123
+
+# Post-merge pipeline step
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
+
+# Monthly/on-demand refine pipeline step
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
+```
+
+### Best-practice Build Pipeline step architecture
+
+To preserve Reflex Reviewer’s intended learning loop (`review -> distill -> refine`), wire pipeline steps in this order:
+
+| Bitbucket trigger timing | Script | Why this is the intended architecture |
+| --- | --- | --- |
+| PR created / PR updated | `review-step.sh` | Review comments are most useful during active PR discussion. |
+| PR merged / target branch updated post-merge | `distill-step.sh` | Distill should run after reviewer replies exist, so preference extraction has signal. |
+| Monthly admin schedule or on-demand execution | `refine-step.sh` | Refinement should be decoupled from PR latency and run on accumulated datasets. |
+
+Recommended operational setup:
+
+1. Install Reflex Reviewer dependencies in a stable runtime (automation host or controlled Bitbucket-side execution environment).
+2. Keep runtime credentials in secure environment variables, not inline in pipeline config.
+3. Ensure PR events pass a PR id explicitly if your pipeline trigger context does not export one of the recognized PR id variables.
+4. Keep `refine-step.sh` asynchronous (monthly/on-demand) rather than tied to synchronous PR pipeline latency.
+5. Keep all model/VCS endpoint values centralized through environment + `reflex_reviewer.toml`.
+
+### Bitbucket Cloud-specific reference
+
+For a concrete Bitbucket Pipeline implementation, see: **`bitbucket-pipelines.yml`**.
 
 ---
 
@@ -390,7 +507,7 @@ Run review:
 
 - `python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"`
 
-Post-merge and scheduled jobs:
+Post-merge and monthly/on-demand jobs:
 - `python3 -m reflex_reviewer.distill --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 - `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 

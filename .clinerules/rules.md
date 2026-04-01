@@ -16,7 +16,6 @@
    - Always update `README.md` when runtime config is added/modified.
 
 4. **Project-specific workflow override:**
-   - Skip reading/updating memory-bank files for this repository.
    - Always create a config in `reflex_reviewer/reflex_reviewer.toml` for values fetched from os env and use.
 
 5. **Coding expectations:**

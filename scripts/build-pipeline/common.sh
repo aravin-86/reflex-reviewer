@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RR_MIN_PYTHON_MAJOR=3
+RR_MIN_PYTHON_MINOR=9
+RR_REQUIRED_PYTHON_MODULES=(
+  "openai"
+  "requests"
+  "tenacity"
+  "dotenv"
+  "authlib"
+)
+
+rr_log() {
+  echo "[reflex-pipeline] $*"
+}
+
+rr_error() {
+  echo "[reflex-pipeline] ERROR: $*" >&2
+}
+
+rr_require_cmd() {
+  local cmd_name="$1"
+  if ! command -v "${cmd_name}" >/dev/null 2>&1; then
+    rr_error "Required command is missing: ${cmd_name}"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_file() {
+  local file_path="$1"
+  if [[ ! -f "${file_path}" ]]; then
+    rr_error "Required file is missing: ${file_path}"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_dir() {
+  local dir_path="$1"
+  if [[ ! -d "${dir_path}" ]]; then
+    rr_error "Required directory is missing: ${dir_path}"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_env() {
+  local env_name="$1"
+  local env_value="${!env_name-}"
+
+  if [[ -z "${env_value:-}" ]]; then
+    rr_error "Required environment variable is missing: ${env_name}"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_litellm_auth() {
+  if [[ -n "${LITELLM_API_KEY:-}" ]]; then
+    return 0
+  fi
+
+  rr_require_env "OAUTH2_TOKEN_URL"
+  rr_require_env "OAUTH2_USER_ID"
+  rr_require_env "OAUTH2_USER_SECRET"
+}
+
+rr_repo_root_from_script_dir() {
+  local script_dir="$1"
+  (cd "${script_dir}/../.." && pwd)
+}
+
+rr_default_repository_dir() {
+  echo "${RR_REPOSITORY_DIR:-${PWD}/.reflex-reviewer-clone}"
+}
+
+rr_clone_repository_checkout() {
+  rr_require_cmd "git"
+  rr_require_env "RR_REPOSITORY_CLONE_URL"
+
+  local repo_url="${RR_REPOSITORY_CLONE_URL}"
+  local repo_dir
+  repo_dir="$(rr_default_repository_dir)"
+  local repo_ref="${RR_REPOSITORY_REF:-}"
+
+  if [[ -e "${repo_dir}" ]]; then
+    rr_log "Removing existing repository directory: ${repo_dir}" >&2
+    rm -rf "${repo_dir}"
+  fi
+
+  rr_log "Cloning repository checkout into: ${repo_dir}" >&2
+  if [[ -n "${repo_ref}" ]]; then
+    git clone --quiet --branch "${repo_ref}" "${repo_url}" "${repo_dir}"
+  else
+    git clone --quiet "${repo_url}" "${repo_dir}"
+  fi
+
+  echo "${repo_dir}"
+}
+
+rr_bootstrap_cloned_pipeline_script() {
+  local script_name="$1"
+  shift
+
+  if [[ "${RR_USE_CLONED_PIPELINE_SCRIPT:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local repo_root
+  repo_root="$(rr_clone_repository_checkout)"
+
+  local target_script="${repo_root}/scripts/build-pipeline/${script_name}"
+  rr_require_file "${target_script}"
+
+  rr_log "Executing cloned pipeline script: ${script_name}"
+  RR_USE_CLONED_PIPELINE_SCRIPT=1 RR_REPOSITORY_DIR="${repo_root}" exec "${target_script}" "$@"
+}
+
+rr_require_repo_layout() {
+  local repo_root="$1"
+  rr_require_dir "${repo_root}"
+  rr_require_file "${repo_root}/requirements.txt"
+  rr_require_dir "${repo_root}/reflex_reviewer"
+}
+
+rr_default_venv_dir() {
+  local repo_root="$1"
+  echo "${RR_VENV_DIR:-${repo_root}/.build-pipeline-venv}"
+}
+
+rr_python_bin() {
+  local repo_root="${1:-}"
+  local bin="${PYTHON_BIN:-}"
+
+  if [[ -z "${bin}" && -n "${repo_root}" ]]; then
+    local managed_bin
+    managed_bin="$(rr_default_venv_dir "${repo_root}")/bin/python"
+    if [[ -x "${managed_bin}" ]]; then
+      bin="${managed_bin}"
+    fi
+  fi
+
+  if [[ -z "${bin}" ]]; then
+    bin="python3"
+  fi
+
+  if ! command -v "$bin" >/dev/null 2>&1; then
+    rr_error "Python executable not found: ${bin}"
+    return 1
+  fi
+
+  command -v "$bin"
+}
+
+rr_require_python_min_version() {
+  local python_bin="$1"
+
+  if ! "${python_bin}" -c "import sys; sys.exit(0 if sys.version_info >= (${RR_MIN_PYTHON_MAJOR}, ${RR_MIN_PYTHON_MINOR}) else 1)"; then
+    rr_error "Python ${RR_MIN_PYTHON_MAJOR}.${RR_MIN_PYTHON_MINOR}+ is required. configured='${python_bin}'"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_python_module() {
+  local python_bin="$1"
+  local module_name="$2"
+
+  if ! "${python_bin}" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('${module_name}') else 1)"; then
+    rr_error "Python module is not installed in runtime '${python_bin}': ${module_name}"
+    return 1
+  fi
+
+  return 0
+}
+
+rr_require_runtime_installation() {
+  local python_bin="$1"
+  local repo_root="$2"
+
+  rr_require_python_min_version "${python_bin}"
+
+  local module_name
+  for module_name in "${RR_REQUIRED_PYTHON_MODULES[@]}"; do
+    rr_require_python_module "${python_bin}" "${module_name}"
+  done
+
+  if ! "${python_bin}" -c 'import sys, importlib.util; module_name = "tomllib" if sys.version_info >= (3, 11) else "tomli"; sys.exit(0 if importlib.util.find_spec(module_name) else 1)'; then
+    rr_error "Python TOML parser missing in runtime '${python_bin}'. expected='tomllib|tomli'"
+    return 1
+  fi
+
+  if ! (cd "${repo_root}" && "${python_bin}" -c 'import reflex_reviewer'); then
+    rr_error "Unable to import local package 'reflex_reviewer' from repo root '${repo_root}'."
+    return 1
+  fi
+
+  return 0
+}
+
+rr_resolve_pr_id() {
+  local arg_pr_id="${1:-}"
+  if [[ -n "${arg_pr_id}" ]]; then
+    echo "${arg_pr_id}"
+    return 0
+  fi
+
+  local env_candidates=(
+    "PR_ID"
+    "VCS_PR_ID"
+    "BITBUCKET_PR_ID"
+    "BITBUCKET_PULL_REQUEST_ID"
+    "PULL_REQUEST_ID"
+  )
+
+  local key
+  for key in "${env_candidates[@]}"; do
+    local value="${!key-}"
+    if [[ -n "${value:-}" ]]; then
+      echo "${value}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+rr_validate_pr_id() {
+  local pr_id="$1"
+  if [[ ! "${pr_id}" =~ ^[0-9]+$ ]]; then
+    rr_error "PR id must be numeric. received='${pr_id}'"
+    return 1
+  fi
+}
+
+rr_require_runtime_env() {
+  rr_require_env "TEAM_NAME"
+  rr_require_env "PRIMARY_MODEL"
+  rr_require_env "VCS_BASE_URL"
+  rr_require_env "VCS_PROJECT_KEY"
+  rr_require_env "VCS_REPO_SLUG"
+  rr_require_env "VCS_TOKEN"
+  rr_require_litellm_auth
+}
+
+rr_ensure_directory() {
+  local dir_path="$1"
+
+  if [[ -z "${dir_path}" ]]; then
+    rr_error "Directory path must not be empty."
+    return 1
+  fi
+
+  if ! mkdir -p "${dir_path}"; then
+    rr_error "Failed to create directory: ${dir_path}"
+    return 1
+  fi
+
+  if [[ ! -w "${dir_path}" ]]; then
+    rr_error "Directory is not writable: ${dir_path}"
+    return 1
+  fi
+
+  return 0
+}

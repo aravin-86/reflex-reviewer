@@ -8,6 +8,9 @@ __pycache__/
 
 .venv/
 venv/
+.build-pipeline-venv/
+.reflex-reviewer-clone/
+scripts/bitbucket-cloud/bitbucket-pipeline-schedule.sh
 
 .pytest_cache/
 .mypy_cache/
@@ -16,7 +19,6 @@ venv/
 train.jsonl
 val.jsonl
 
-scripts/*
 data/*
 *.egg-info
 dist/
