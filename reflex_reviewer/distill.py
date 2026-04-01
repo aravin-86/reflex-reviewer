@@ -31,6 +31,11 @@ SENTIMENT_ACCEPTED = "ACCEPTED"
 SENTIMENT_REJECTED = "REJECTED"
 SENTIMENT_UNSURE = "UNSURE"
 VALID_SENTIMENTS = {SENTIMENT_ACCEPTED, SENTIMENT_REJECTED, SENTIMENT_UNSURE}
+ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY", "NITPICK"}
+DEFAULT_COMMENT_SEVERITY = "ADVISORY"
+SEVERITY_PREFIX_PATTERN = re.compile(
+    r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
+)
 
 
 def _parse_bool(value):
@@ -145,6 +150,56 @@ def _is_summary_comment_text(text, team_name=""):
     if not _is_bot_comment_text(text, team_name):
         return False
     return "**Verdict:**" in text and "**Summary:**" in text and "**Checklist**" in text
+
+
+def _normalize_repo_path(file_path):
+    normalized = (file_path or "").strip().replace("\\", "/")
+    normalized = re.sub(r"^(?:\./)+", "", normalized)
+    normalized = re.sub(r"^(?:a|b)/", "", normalized)
+    normalized = normalized.lstrip("/")
+    return normalized.lower()
+
+
+def _is_test_file_path(file_path):
+    normalized = _normalize_repo_path(file_path)
+    if not normalized:
+        return False
+
+    if normalized.startswith("tests/") or "/tests/" in normalized:
+        return True
+
+    filename = normalized.rsplit("/", 1)[-1]
+    return (
+        filename.startswith("test_")
+        or filename.endswith("_test.py")
+        or filename.endswith("_tests.py")
+    )
+
+
+def _normalize_comment_severity(severity):
+    normalized = str(severity or "").strip().upper()
+    if normalized in ALLOWED_COMMENT_SEVERITIES:
+        return normalized
+    return DEFAULT_COMMENT_SEVERITY
+
+
+def _resolve_comment_severity(severity, file_path=None):
+    normalized = _normalize_comment_severity(severity)
+    if _is_test_file_path(file_path):
+        return DEFAULT_COMMENT_SEVERITY
+    return normalized
+
+
+def _extract_comment_severity(text, file_path=None):
+    inline_body = (text or "").split("\n\n###", 1)[0].strip()
+    if not inline_body:
+        return DEFAULT_COMMENT_SEVERITY
+
+    match = SEVERITY_PREFIX_PATTERN.match(inline_body)
+    if not match:
+        return DEFAULT_COMMENT_SEVERITY
+
+    return _resolve_comment_severity(match.group("severity"), file_path)
 
 
 def _is_line_comment(comment, team_name=""):
@@ -551,13 +606,25 @@ def _build_batched_sentiment_messages(comment_threads, team_name=""):
     for thread in comment_threads:
         comment = thread.get("comment", {})
         replies = thread.get("replies", [])
+        comment_text = (
+            comment.get("text", "") if isinstance(comment, dict) else ""
+        ).strip()
+        comment_category = _comment_category(comment, team_name)
+        comment_anchor = comment.get("anchor", {}) if isinstance(comment, dict) else {}
+        comment_anchor_path = (
+            comment_anchor.get("path") if isinstance(comment_anchor, dict) else None
+        )
+        comment_severity = (
+            _extract_comment_severity(comment_text, comment_anchor_path)
+            if comment_category == "bot-comment"
+            else ""
+        )
         thread_payload.append(
             {
                 "comment_id": thread.get("comment_id"),
-                "category": _comment_category(comment, team_name),
-                "comment_text": (
-                    comment.get("text", "") if isinstance(comment, dict) else ""
-                ).strip(),
+                "category": comment_category,
+                "severity": comment_severity,
+                "comment_text": comment_text,
                 "replies": _normalized_reply_texts(replies),
                 "replies_count": thread.get("replies_count", 0),
             }

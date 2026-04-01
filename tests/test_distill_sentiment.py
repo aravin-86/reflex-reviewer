@@ -183,17 +183,39 @@ class DistillTopThreadsAndBatchedSentimentTests(unittest.TestCase):
         comment_threads = [
             {
                 "comment_id": "101",
-                "comment": {"id": "101", "text": "Please fix this"},
+                "comment": {
+                    "id": "101",
+                    "text": "Please fix this\n\n### #TEAM-ONE",
+                },
                 "replies": [{"id": "201", "text": "Fixed now"}],
                 "replies_count": 1,
             }
         ]
 
-        messages = _build_batched_sentiment_messages(comment_threads)
+        messages = _build_batched_sentiment_messages(comment_threads, team_name="TEAM-ONE")
 
         self.assertEqual(len(messages), 2)
         self.assertIn('"comment_id": "101"', messages[1]["content"])
+        self.assertIn('"severity": "ADVISORY"', messages[1]["content"])
         self.assertIn('"replies": ["Fixed now"]', messages[1]["content"])
+
+    def test_build_batched_sentiment_messages_forces_advisory_for_test_file_comments(self):
+        comment_threads = [
+            {
+                "comment_id": "501",
+                "comment": {
+                    "id": "501",
+                    "text": "[CRITICAL] Add better edge assertions\n\n### #TEAM-ONE",
+                    "anchor": {"path": "tests/test_service.py", "line": 30},
+                },
+                "replies": [],
+                "replies_count": 0,
+            }
+        ]
+
+        messages = _build_batched_sentiment_messages(comment_threads, team_name="TEAM-ONE")
+
+        self.assertIn('"severity": "ADVISORY"', messages[1]["content"])
 
     def test_parse_batched_sentiment_response_accepts_valid_items_only(self):
         response = {

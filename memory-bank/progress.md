@@ -7,10 +7,15 @@
 - ✅ README expanded with Build Pipeline pipeline-step setup and architecture best-practice guidance.
 - ✅ Build Pipeline runtime hardening added with dedicated virtualenv bootstrap and fail-fast dependency/runtime checks.
 - ✅ Build Pipeline clone-first bootstrap added so step scripts run from a freshly cloned remote repository checkout.
+- ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY|NITPICK`) with test-file comments forced to `ADVISORY`.
+- ✅ Local/unit test bootstrap unblocked in this environment using isolated virtualenv + explicit dependency install path.
 
 ## What currently works (project capabilities snapshot)
 - PR review automation flow with model-generated summary and inline comment handling.
+- PR review inline severity normalization with fallback to `ADVISORY` for unknown labels.
+- Test-file advisory enforcement for review inline comments (posting + dedupe consistency).
 - Distillation flow to extract preference signals from PR feedback threads.
+- Distillation batched sentiment payload now carries normalized bot-comment severity metadata.
 - Refinement flow to run DPO-style training cycles from generated datasets.
 - Bitbucket VCS integration and LiteLLM/OAuth2-based model access infrastructure.
 - Build Pipeline shell wrappers to run from build pipeline steps:
@@ -41,6 +46,37 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `pyproject.toml`:
+  - Added optional dependency group `test` with `pytest>=8.0.0` for explicit test tooling install (`.[test]`).
+- Updated `README.md`:
+  - Added deterministic local test bootstrap instructions using isolated venv.
+  - Added explicit unit test execution command: `.venv/bin/python -m unittest discover -s tests`.
+- Updated `tests/test_config_runtime_overrides.py`:
+  - Aligned `test_model_endpoint_defaults_and_normalization` expectations to current config default (`chat_completions`) and verified explicit `RESPONSES` override normalization.
+- Verification notes:
+  - Initial failure reproduced: missing runtime modules (`requests`, `dotenv`) under system-managed Python.
+  - `python3 -m pip ...` direct install blocked by PEP 668 externally-managed environment.
+  - Successful bootstrap via:
+    - `python3 -m venv .venv`
+    - `.venv/bin/python -m pip install -r requirements.txt -e ".[test]"`
+  - Full test suite passes in venv:
+    - `.venv/bin/python -m unittest discover -s tests`
+    - Result: `Ran 84 tests ... OK`.
+
+- Updated `reflex_reviewer/review.py`:
+  - Added centralized severity normalization and test-file detection helpers.
+  - Enforced supported severity set (`CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`) with `ADVISORY` fallback.
+  - Coerced severities to `ADVISORY` for test-file comments in parsing, dedupe keying, and posting paths.
+- Updated `reflex_reviewer/distill.py`:
+  - Added severity parsing/normalization helpers and test-file advisory coercion.
+  - Included normalized `severity` field in batched thread payload for bot comments.
+- Updated tests:
+  - `tests/test_review_model_api.py` for severity normalization and test-file advisory coercion.
+  - `tests/test_distill_sentiment.py` for batched payload severity behavior, including test-file advisory coercion.
+- Updated `README.md` to document severity taxonomy and test-file advisory enforcement behavior.
+- Verification notes:
+  - `python3 -m compileall reflex_reviewer tests` passes.
+  - Runtime unit test execution is currently blocked in this environment due to missing dependencies (`requests`, `pytest`) and module path setup.
 - Updated `scripts/build-pipeline/common.sh` with clone-first helpers:
   - `rr_clone_repository_checkout`
   - `rr_bootstrap_cloned_pipeline_script`

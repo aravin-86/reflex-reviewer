@@ -43,6 +43,11 @@ SKIP_FILES = review_config["skip_files"]
 MODEL_ENDPOINT = str(model_config.get("model_endpoint") or "responses").strip().lower()
 RESPONSE_STATE_FILE = review_config["response_state_file"]
 RESPONSE_STATE_TTL_DAYS = review_config["response_state_ttl_days"]
+ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY", "NITPICK"}
+DEFAULT_COMMENT_SEVERITY = "ADVISORY"
+SEVERITY_PREFIX_PATTERN = re.compile(
+    r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
+)
 
 
 def _parse_bool(value):
@@ -126,6 +131,36 @@ def _normalize_repo_path(file_path):
     return normalized.lower()
 
 
+def _is_test_file_path(file_path):
+    normalized = _normalize_repo_path(file_path)
+    if not normalized:
+        return False
+
+    if normalized.startswith("tests/") or "/tests/" in normalized:
+        return True
+
+    filename = normalized.rsplit("/", 1)[-1]
+    return (
+        filename.startswith("test_")
+        or filename.endswith("_test.py")
+        or filename.endswith("_tests.py")
+    )
+
+
+def _normalize_comment_severity(severity):
+    normalized = str(severity or "").strip().upper()
+    if normalized in ALLOWED_COMMENT_SEVERITIES:
+        return normalized
+    return DEFAULT_COMMENT_SEVERITY
+
+
+def _resolve_comment_severity(severity, file_path=None):
+    normalized = _normalize_comment_severity(severity)
+    if _is_test_file_path(file_path):
+        return DEFAULT_COMMENT_SEVERITY
+    return normalized
+
+
 def _is_bot_comment_text(text, team_name):
     if not text:
         return False
@@ -151,15 +186,13 @@ def _is_summary_comment_text(text, team_name):
 def _parse_inline_comment_payload(text):
     inline_body = (text or "").split("\n\n###", 1)[0].strip()
     if not inline_body:
-        return "ADVISORY", ""
+        return DEFAULT_COMMENT_SEVERITY, ""
 
-    match = re.match(
-        r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", inline_body, re.DOTALL
-    )
+    match = SEVERITY_PREFIX_PATTERN.match(inline_body)
     if not match:
-        return "ADVISORY", inline_body
+        return DEFAULT_COMMENT_SEVERITY, inline_body
 
-    severity = match.group("severity").strip().upper() or "ADVISORY"
+    severity = _normalize_comment_severity(match.group("severity"))
     body = (match.group("body") or "").strip()
     return severity, body
 
@@ -169,11 +202,12 @@ def _normalize_comment_text(text):
 
 
 def _inline_comment_key(path, line, severity, text):
+    normalized_severity = _resolve_comment_severity(severity, path)
     return "|".join(
         [
             _normalize_repo_path(path),
             str(int(line)),
-            (severity or "ADVISORY").strip().upper(),
+            normalized_severity,
             _normalize_comment_text(text),
         ]
     )
@@ -693,7 +727,9 @@ def post_inline_comment(vcs_client, pr_id, anchor, severity, text, team_name):
     comment appears directly against the relevant diff line.
     """
     hashtag_team_name = str(team_name or "").strip().lstrip("#")
-    body = f"[{severity}] {text}\n\n### #{hashtag_team_name}"
+    anchor_path = anchor.get("path") if isinstance(anchor, dict) else None
+    normalized_severity = _resolve_comment_severity(severity, anchor_path)
+    body = f"[{normalized_severity}] {text}\n\n### #{hashtag_team_name}"
     return vcs_client.post_comment(pr_id, body, anchor=anchor)
 
 
@@ -873,7 +909,7 @@ def run(
 
         for comment in comments:
             anchor_id = (comment.get("anchor_id") or "").strip()
-            severity = (comment.get("severity") or "ADVISORY").strip().upper()
+            severity = _normalize_comment_severity(comment.get("severity"))
             text = (comment.get("text") or "").strip()
 
             if not text or not anchor_id:
@@ -894,6 +930,8 @@ def run(
                     resolved_anchor.get("path"),
                 )
                 continue
+
+            severity = _resolve_comment_severity(severity, resolved_anchor["path"])
 
             inline_key = _inline_comment_key(
                 resolved_anchor["path"], resolved_anchor["line"], severity, text

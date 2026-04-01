@@ -86,12 +86,15 @@ flowchart TB
    - Fetches paginated PR activities/comments to reduce repetitive suggestions
    - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
    - Calls the configured review model and parses structured output (`verdict`, `summary`, `checklist`, `comments`)
+   - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`
+   - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
    - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context when a response id is available
    - Posts summary and optional inline comments back to VCS
 
 2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**
    - Reads paginated PR activities and builds root comment threads
    - Ranks threads by reply count and selects top configured threads
+   - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY|NITPICK`) with test-file comments coerced to `ADVISORY`
    - Runs one batched LiteLLM classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`
    - Appends only high-confidence preference samples (`ACCEPTED` / `REJECTED`) to the DPO dataset
 
@@ -427,6 +430,19 @@ Install locally:
 
 ```bash
 pip install .
+```
+
+Recommended local unit test bootstrap (isolated venv):
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt -e ".[test]"
+```
+
+Run unit tests:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
 ```
 
 Optional local env bootstrap:

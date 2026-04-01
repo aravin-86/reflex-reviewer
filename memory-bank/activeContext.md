@@ -4,6 +4,10 @@
 - Keep Build Pipeline execution simple with clone-first repository bootstrapping.
 - Ensure Build Pipeline step scripts always run from a freshly cloned remote checkout.
 - Keep runtime setup hardened for Build Pipeline runner hosts using a dedicated virtualenv bootstrap and fail-fast checks.
+- Keep local unit-test bootstrap deterministic under PEP 668 environments via isolated virtualenv usage.
+- Enforce strict inline comment severity taxonomy in review/distill flows:
+  - allowed severities: `CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`
+  - comments on test files must always be `ADVISORY`.
 
 ## Current repository snapshot
 - Project is an automated AI PR review system with three operational flows:
@@ -39,7 +43,16 @@
 - Clone flow is intentionally simple/deterministic: existing checkout directory is removed, then repository is recloned.
 - Step scripts re-exec from the cloned repository's `scripts/build-pipeline/` path using `RR_USE_CLONED_PIPELINE_SCRIPT=1` guard to avoid recursion.
 - Optional clone target selection supported via `RR_REPOSITORY_REF` (branch/tag).
+- Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
+- Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
+- Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
+- Add package test extra (`.[test]`) in `pyproject.toml` for explicit local test tooling install.
+- Keep local verification path venv-first (`python3 -m venv .venv` + editable install) to avoid system Python mutation under externally managed environments.
+- Align config unit test expectation with current TOML/runtime default where `model_endpoint` defaults to `chat_completions`.
+- Document local unit test bootstrap and execution commands in `README.md`.
+- Full unit suite verification performed successfully in local venv (`84 tests`, `OK`).
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.
 - Add automated shell tests for clone-bootstrap and re-exec behavior in pipeline scripts.
+- Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).

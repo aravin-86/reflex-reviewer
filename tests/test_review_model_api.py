@@ -5,6 +5,51 @@ import reflex_reviewer.review as review_module
 
 
 class ReviewModelApiTests(unittest.TestCase):
+    def test_normalize_comment_severity_accepts_only_supported_labels(self):
+        self.assertEqual(review_module._normalize_comment_severity("critical"), "CRITICAL")
+        self.assertEqual(review_module._normalize_comment_severity("MAJOR"), "MAJOR")
+        self.assertEqual(review_module._normalize_comment_severity("minor"), "ADVISORY")
+
+    def test_resolve_comment_severity_forces_advisory_for_test_paths(self):
+        self.assertEqual(
+            review_module._resolve_comment_severity("CRITICAL", "tests/test_review.py"),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            review_module._resolve_comment_severity("MAJOR", "src/service.py"),
+            "MAJOR",
+        )
+
+    def test_parse_inline_comment_payload_falls_back_to_advisory_for_unknown_severity(self):
+        severity, body = review_module._parse_inline_comment_payload(
+            "[BLOCKER] fix this\n\n### #TEAM-PRODUCT"
+        )
+
+        self.assertEqual(severity, "ADVISORY")
+        self.assertEqual(body, "fix this")
+
+    def test_post_inline_comment_coerces_test_comments_to_advisory(self):
+        vcs_client = Mock()
+        anchor = {
+            "path": "tests/test_review.py",
+            "line": 10,
+            "lineType": "ADDED",
+            "fileType": "TO",
+        }
+
+        review_module.post_inline_comment(
+            vcs_client,
+            pr_id=123,
+            anchor=anchor,
+            severity="CRITICAL",
+            text="Please add edge-case coverage",
+            team_name="TEAM-PRODUCT",
+        )
+
+        vcs_client.post_comment.assert_called_once()
+        body = vcs_client.post_comment.call_args.args[1]
+        self.assertIn("[ADVISORY]", body)
+
     def test_is_bot_comment_text_supports_hashtag_and_legacy_markers(self):
         self.assertTrue(
             review_module._is_bot_comment_text(

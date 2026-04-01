@@ -116,10 +116,10 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
     def test_model_endpoint_defaults_and_normalization(self):
         with patch.dict("os.environ", {}, clear=True):
             config = get_model_config()
-            self.assertEqual(config.get("model_endpoint"), "responses")
+            self.assertEqual(config.get("model_endpoint"), "chat_completions")
 
-            overridden = get_model_config({"model_endpoint": "CHAT_COMPLETIONS"})
-            self.assertEqual(overridden.get("model_endpoint"), "chat_completions")
+            overridden = get_model_config({"model_endpoint": "RESPONSES"})
+            self.assertEqual(overridden.get("model_endpoint"), "responses")
 
     def test_oauth2_config_uses_fallback_env_vars(self):
         with patch.dict(
