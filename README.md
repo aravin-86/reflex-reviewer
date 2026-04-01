@@ -274,19 +274,21 @@ Optional:
 
 - `RR_REPOSITORY_DIR` (defaults to `<cwd>/.reflex-reviewer-clone`)
 - `RR_REPOSITORY_REF` (optional branch/tag passed to `git clone --branch`)
-- `PYTHON_BIN` (defaults to `<repo>/.build-pipeline-venv/bin/python` when present, else `python3`)
-- `RR_VENV_DIR` (defaults to `<repo>/.build-pipeline-venv`)
+- `PYTHON_BIN` (optional explicit interpreter override)
+- `RR_VENV_DIR` (optional explicit venv-dir override; resolved as `<RR_VENV_DIR>/bin/python`)
+- Default runtime without overrides: `<repo>/.venv/bin/python`
 
 Build Pipeline clone behavior:
 
 - Build Pipeline scripts clone the configured remote repository before flow execution.
-- If `RR_REPOSITORY_DIR` already exists, it is removed and cloned again to keep checkout state simple and deterministic.
+- If `RR_REPOSITORY_DIR` already contains a git checkout (`.git/`), the scripts reuse it so the local `.venv` remains available across step runs.
+- If `RR_REPOSITORY_DIR` exists but is not a git checkout, it is removed and cloned again.
 - The script then re-executes from the cloned repository's `scripts/build-pipeline/` path.
 
 Runtime bootstrap for pipeline runner hosts:
 
 ```bash
-# Create/update dedicated venv and install Python dependencies from requirements.txt
+# Create/update cloned-repo local .venv and install Python dependencies from requirements.txt
 RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
 
 # Optional custom venv location

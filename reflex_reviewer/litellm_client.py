@@ -428,10 +428,11 @@ def chat_completions(model, messages, stream=False, pr_id=None):
 
     accept_header = "text/event-stream"
     logger.info(
-        "Calling LiteLLM chat completion: model=%s, stream=%s, message_count=%s",
+        "Calling LiteLLM chat completion: model=%s, stream=%s, message_count=%s, proxies_enabled=%s",
         model,
         stream,
         len(messages),
+        bool(runtime_config.get("proxies")),
     )
     try:
         response = _post_with_retry(

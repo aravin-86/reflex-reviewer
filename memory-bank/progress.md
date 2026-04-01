@@ -46,6 +46,26 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `scripts/build-pipeline/common.sh` runtime/clone behavior:
+  - Default runtime resolution now prefers cloned repo local `.venv/bin/python`.
+  - `PYTHON_BIN=python3` no longer silently bypasses cloned repo runtime when running from cloned context.
+  - Added minimal runtime log: selected interpreter path is printed before execution.
+  - Clone helper now reuses existing `RR_REPOSITORY_DIR` when it is already a git checkout (`.git/`), preserving `.venv` across pipeline step runs.
+  - Non-git pre-existing clone directory is still removed and recloned.
+- Updated pipeline script usage/help text:
+  - `review-step.sh`, `distill-step.sh`, `refine-step.sh` now document default runtime as `<repo>/.venv/bin/python` and explicit override semantics for `PYTHON_BIN` / `RR_VENV_DIR`.
+- Updated `scripts/build-pipeline/setup-pipeline-runtime.sh` docs/help:
+  - Describes bootstrapping cloned repo local virtualenv used by step scripts.
+  - Default `--venv-dir` help now reflects `<repo>/.venv`.
+- Updated `README.md` Build Pipeline section:
+  - Runtime defaults now aligned to cloned repo local `.venv`.
+  - Clone behavior documentation updated to include git-checkout reuse for `.venv` persistence.
+- Updated `.env.example`:
+  - `PYTHON_BIN` default value cleared and documented as optional override to avoid accidental `python3` fallback.
+- Validation notes:
+  - Shell syntax checks passed:
+    - `bash -n scripts/build-pipeline/common.sh scripts/build-pipeline/review-step.sh scripts/build-pipeline/distill-step.sh scripts/build-pipeline/refine-step.sh scripts/build-pipeline/setup-pipeline-runtime.sh`
+
 - Updated `pyproject.toml`:
   - Added optional dependency group `test` with `pytest>=8.0.0` for explicit test tooling install (`.[test]`).
 - Updated `README.md`:

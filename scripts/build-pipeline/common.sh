@@ -89,8 +89,14 @@ rr_clone_repository_checkout() {
   repo_dir="$(rr_default_repository_dir)"
   local repo_ref="${RR_REPOSITORY_REF:-}"
 
+  if [[ -d "${repo_dir}/.git" ]]; then
+    rr_log "Using existing repository checkout: ${repo_dir}" >&2
+    echo "${repo_dir}"
+    return 0
+  fi
+
   if [[ -e "${repo_dir}" ]]; then
-    rr_log "Removing existing repository directory: ${repo_dir}" >&2
+    rr_log "Removing existing repository directory (not a git checkout): ${repo_dir}" >&2
     rm -rf "${repo_dir}"
   fi
 
@@ -131,19 +137,36 @@ rr_require_repo_layout() {
 
 rr_default_venv_dir() {
   local repo_root="$1"
-  echo "${RR_VENV_DIR:-${repo_root}/.build-pipeline-venv}"
+  echo "${RR_VENV_DIR:-${repo_root}/.venv}"
 }
 
 rr_python_bin() {
   local repo_root="${1:-}"
   local bin="${PYTHON_BIN:-}"
 
-  if [[ -z "${bin}" && -n "${repo_root}" ]]; then
-    local managed_bin
-    managed_bin="$(rr_default_venv_dir "${repo_root}")/bin/python"
-    if [[ -x "${managed_bin}" ]]; then
-      bin="${managed_bin}"
+  if [[ "${bin}" == "python3" && -n "${repo_root}" ]]; then
+    bin=""
+  fi
+
+  if [[ -z "${bin}" && -n "${RR_VENV_DIR:-}" ]]; then
+    local configured_venv_bin
+    configured_venv_bin="${RR_VENV_DIR}/bin/python"
+    if [[ -x "${configured_venv_bin}" ]]; then
+      bin="${configured_venv_bin}"
     fi
+  fi
+
+  if [[ -z "${bin}" && -n "${repo_root}" ]]; then
+    local local_repo_venv_bin
+    local_repo_venv_bin="${repo_root}/.venv/bin/python"
+    if [[ -x "${local_repo_venv_bin}" ]]; then
+      bin="${local_repo_venv_bin}"
+    fi
+  fi
+
+  if [[ -z "${bin}" && -n "${repo_root}" ]]; then
+    rr_error "Python executable not found. Expected cloned repo local runtime at '${repo_root}/.venv/bin/python' or override PYTHON_BIN/RR_VENV_DIR."
+    return 1
   fi
 
   if [[ -z "${bin}" ]]; then
@@ -155,6 +178,7 @@ rr_python_bin() {
     return 1
   fi
 
+  rr_log "Using python runtime: $(command -v "$bin")" >&2
   command -v "$bin"
 }
 

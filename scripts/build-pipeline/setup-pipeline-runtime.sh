@@ -9,12 +9,13 @@ print_usage() {
   cat <<'USAGE'
 Usage: setup-pipeline-runtime.sh [options]
 
-Creates/updates a dedicated virtualenv for Build Pipeline step scripts
-and installs required Python packages from requirements.txt.
+Creates/updates the cloned repository local virtualenv used by
+Build Pipeline step scripts and installs required Python packages
+from requirements.txt.
 
 Options:
   --venv-dir <path>     Virtualenv directory
-                        (default: RR_VENV_DIR or <repo>/.build-pipeline-venv)
+                        (default: RR_VENV_DIR or <repo>/.venv)
   --python-bin <path>   Python executable used to create venv (default: python3)
   --recreate            Delete existing venv directory before creating it
   -h, --help            Show this help message

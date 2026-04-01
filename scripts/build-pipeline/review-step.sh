@@ -35,8 +35,9 @@ LiteLLM auth:
 Optional:
   RR_REPOSITORY_DIR (default: <cwd>/.reflex-reviewer-clone)
   RR_REPOSITORY_REF (optional branch/tag for clone)
-  PYTHON_BIN (default: <repo>/.build-pipeline-venv/bin/python if present, else python3)
-  RR_VENV_DIR (default: <repo>/.build-pipeline-venv)
+  PYTHON_BIN (optional explicit interpreter override)
+  RR_VENV_DIR (optional explicit venv dir override; resolved as <RR_VENV_DIR>/bin/python)
+  Default runtime without overrides: <repo>/.venv/bin/python
 USAGE
 }
 
