@@ -46,6 +46,17 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `reflex_reviewer/oauth2.py`:
+  - Added executable `main()` entrypoint and module guard so OAuth2 token retrieval can be run directly via `python3 -m reflex_reviewer.oauth2`.
+  - Added minimal CLI logging bootstrap and error handling that exits non-zero on failure.
+  - Direct-run success path prints only the resolved access token to stdout for shell/pipeline consumption.
+- Updated `README.md`:
+  - Added local run usage note for direct OAuth2 token retrieval command.
+- Verification notes:
+  - `python3 -m compileall reflex_reviewer/oauth2.py` passes.
+  - AST check confirms `main()` function is present in `reflex_reviewer/oauth2.py`.
+  - Runtime import-based execution check is currently blocked in this environment due to missing `authlib` module.
+
 - Updated `README.md`:
   - Expanded **Future improvements** with a documented plan for vector-DB-backed preference memory using distilled DPO pairs.
   - Captured the intended online loop: distill-time exemplar indexing + review-time retrieval/prompt guidance + optional comment reranking.

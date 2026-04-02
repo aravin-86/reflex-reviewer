@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = (10, 30)
 
 
+def _configure_cli_logging():
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
+
+
 def _get_runtime_oauth2_config():
     raw_config = get_oauth2_config()
 
@@ -121,3 +132,19 @@ def get_oauth2_token():
 
     logger.info("Cached token missing/expired. Fetching new IDCS OAuth token.")
     return _request_new_token(runtime_config, scope=scope)
+
+
+def main():
+    _configure_cli_logging()
+    try:
+        access_token = get_oauth2_token()
+    except Exception:
+        logger.exception("Failed to fetch IDCS OAuth token.")
+        return 1
+
+    print(access_token)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

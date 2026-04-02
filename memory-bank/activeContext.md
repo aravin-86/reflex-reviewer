@@ -52,6 +52,8 @@
 - Align config unit test expectation with current TOML/runtime default where `model_endpoint` defaults to `chat_completions`.
 - Document local unit test bootstrap and execution commands in `README.md`.
 - Full unit suite verification performed successfully in local venv (`84 tests`, `OK`).
+- OAuth2 helper module now supports direct execution via `python3 -m reflex_reviewer.oauth2` to print access token to stdout for pipeline/shell usage.
+- Direct-run OAuth2 path configures minimal logging, preserves existing token cache/refresh behavior, and exits non-zero on fetch failures without logging token values.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

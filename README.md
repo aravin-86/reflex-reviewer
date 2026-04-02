@@ -489,6 +489,12 @@ python3 -m reflex_reviewer.distill --help
 python3 -m reflex_reviewer.refine --help
 ```
 
+Get OAuth2 access token directly (prints token to stdout):
+
+```bash
+python3 -m reflex_reviewer.oauth2
+```
+
 ---
 
 ## 9) Reuse from another repository
