@@ -547,3 +547,8 @@ Post-merge and monthly/on-demand jobs:
 - Add confidence thresholds before posting high-severity inline comments.
 - Support model routing by repository/language for better specialization.
 - Add additional VCS client implementations via the VCS factory.
+- Add vector-DB-backed preference memory from distilled DPO pairs to improve review quality on the fly:
+  - During distill, index accepted/rejected preference exemplars with compact metadata.
+  - During review, retrieve top relevant exemplars and inject concise preference guidance into the prompt.
+  - Optionally rerank/filter generated inline comments against retrieved rejected patterns before posting.
+  - Keep this as an online augmentation layer while preserving offline monthly/on-demand DPO refine cycles.

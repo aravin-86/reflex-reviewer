@@ -46,6 +46,13 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `README.md`:
+  - Expanded **Future improvements** with a documented plan for vector-DB-backed preference memory using distilled DPO pairs.
+  - Captured the intended online loop: distill-time exemplar indexing + review-time retrieval/prompt guidance + optional comment reranking.
+  - Clarified this as future work while keeping existing offline `distill -> refine` DPO training flow intact.
+- Updated `memory-bank/activeContext.md`:
+  - Added vector-DB-backed DPO preference memory as a next likely update for later implementation.
+
 - Updated `scripts/build-pipeline/common.sh` runtime/clone behavior:
   - Default runtime resolution now prefers cloned repo local `.venv/bin/python`.
   - `PYTHON_BIN=python3` no longer silently bypasses cloned repo runtime when running from cloned context.

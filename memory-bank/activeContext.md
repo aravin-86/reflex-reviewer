@@ -57,3 +57,4 @@
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.
 - Add automated shell tests for clone-bootstrap and re-exec behavior in pipeline scripts.
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).
+- Plan and implement vector-DB-backed preference memory from distilled DPO pairs for on-the-fly review guidance (retrieve accepted/rejected exemplars during `review`, keep `refine` as offline optimization).
