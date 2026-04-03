@@ -265,7 +265,6 @@ PR id resolution (`review-step.sh` and `distill-step.sh`) follows this order:
 
 Required environment variables:
 
-- `RR_REPOSITORY_CLONE_URL`
 - `TEAM_NAME`
 - `DRAFT_MODEL`
 - `JUDGE_MODEL` (required by `review-step.sh`)
@@ -280,25 +279,29 @@ LiteLLM auth configuration (choose one):
 - `LITELLM_API_KEY`, or
 - `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
 
+Required for setup step only:
+
+- `RR_REPOSITORY_CLONE_URL`
+
 Optional:
 
-- `RR_REPOSITORY_DIR` (defaults to `<cwd>/.reflex-reviewer-clone`)
-- `RR_REPOSITORY_REF` (optional branch/tag passed to `git clone --branch`)
+- `RR_REPOSITORY_DIR` (prepared checkout dir from setup script; defaults to `<cwd>/.reflex-reviewer-clone`)
+- `RR_REPOSITORY_REF` (optional branch/tag for setup clone via `git clone --branch`)
 - `PYTHON_BIN` (optional explicit interpreter override)
 - `RR_VENV_DIR` (optional explicit venv-dir override; resolved as `<RR_VENV_DIR>/bin/python`)
 - Default runtime without overrides: `<repo>/.venv/bin/python`
 
-Build Pipeline clone behavior:
+Build Pipeline setup behavior:
 
-- Build Pipeline scripts clone the configured remote repository before flow execution.
-- If `RR_REPOSITORY_DIR` already contains a git checkout (`.git/`), the scripts reuse it so the local `.venv` remains available across step runs.
-- If `RR_REPOSITORY_DIR` exists but is not a git checkout, it is removed and cloned again.
-- The script then re-executes from the cloned repository's `scripts/build-pipeline/` path.
+- `setup-pipeline-runtime.sh` is the only script that clones the repository.
+- Setup always removes existing `RR_REPOSITORY_DIR` and performs a fresh clone.
+- Step scripts (`review-step.sh`, `distill-step.sh`, `refine-step.sh`) do not clone and require a prepared checkout/runtime.
+- If prepared checkout/runtime is missing, step scripts fail fast and instruct running setup first.
 
 Runtime bootstrap for pipeline runner hosts:
 
 ```bash
-# Create/update cloned-repo local .venv and install Python dependencies from requirements.txt
+# Create fresh checkout + runtime and install dependencies
 RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
 
 # Optional custom venv location
@@ -320,14 +323,17 @@ Each pipeline step script performs fail-fast checks before execution:
 Example invocations:
 
 ```bash
+# setup first
+RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+
 # PR event pipeline step
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/review-step.sh 123
+RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" ./scripts/build-pipeline/review-step.sh 123
 
 # Post-merge pipeline step
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
+RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
 
 # Monthly/on-demand refine pipeline step
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
+RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
 ```
 
 ### Best-practice Build Pipeline step architecture
@@ -342,7 +348,7 @@ To preserve Reflex Reviewer’s intended learning loop (`review -> distill -> re
 
 Recommended operational setup:
 
-1. Install Reflex Reviewer dependencies in a stable runtime (automation host or controlled Bitbucket-side execution environment).
+1. Run `setup-pipeline-runtime.sh` first to create a fresh checkout and runtime.
 2. Keep runtime credentials in secure environment variables, not inline in pipeline config.
 3. Ensure PR events pass a PR id explicitly if your pipeline trigger context does not export one of the recognized PR id variables.
 4. Keep `refine-step.sh` asynchronous (monthly/on-demand) rather than tied to synchronous PR pipeline latency.

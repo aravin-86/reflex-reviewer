@@ -89,14 +89,8 @@ rr_clone_repository_checkout() {
   repo_dir="$(rr_default_repository_dir)"
   local repo_ref="${RR_REPOSITORY_REF:-}"
 
-  if [[ -d "${repo_dir}/.git" ]]; then
-    rr_log "Using existing repository checkout: ${repo_dir}" >&2
-    echo "${repo_dir}"
-    return 0
-  fi
-
   if [[ -e "${repo_dir}" ]]; then
-    rr_log "Removing existing repository directory (not a git checkout): ${repo_dir}" >&2
+    rr_log "Removing existing repository directory before fresh clone: ${repo_dir}" >&2
     rm -rf "${repo_dir}"
   fi
 
@@ -110,22 +104,38 @@ rr_clone_repository_checkout() {
   echo "${repo_dir}"
 }
 
-rr_bootstrap_cloned_pipeline_script() {
-  local script_name="$1"
-  shift
+rr_require_prepared_repository_checkout() {
+  local script_dir="${1:-}"
+  local repo_dir
+  repo_dir="$(rr_default_repository_dir)"
 
-  if [[ "${RR_USE_CLONED_PIPELINE_SCRIPT:-0}" == "1" ]]; then
+  if [[ -d "${repo_dir}/.git" ]]; then
+    rr_require_repo_layout "${repo_dir}" || return 1
+    echo "${repo_dir}"
     return 0
   fi
 
-  local repo_root
-  repo_root="$(rr_clone_repository_checkout)"
+  if [[ -n "${RR_REPOSITORY_DIR:-}" ]]; then
+    rr_error "Prepared repository checkout is invalid or missing: ${repo_dir}. Run setup-pipeline-runtime.sh first."
+    return 1
+  fi
 
-  local target_script="${repo_root}/scripts/build-pipeline/${script_name}"
-  rr_require_file "${target_script}"
+  if [[ -n "${script_dir}" ]]; then
+    local local_repo_root
+    local_repo_root="$(rr_repo_root_from_script_dir "${script_dir}")"
+    if [[ -d "${local_repo_root}/.git" ]]; then
+      rr_require_repo_layout "${local_repo_root}" || return 1
+      echo "${local_repo_root}"
+      return 0
+    fi
+  fi
 
-  rr_log "Executing cloned pipeline script: ${script_name}"
-  RR_USE_CLONED_PIPELINE_SCRIPT=1 RR_REPOSITORY_DIR="${repo_root}" exec "${target_script}" "$@"
+  if [[ -e "${repo_dir}" ]]; then
+    rr_error "Prepared repository checkout is invalid (missing .git): ${repo_dir}. Run setup-pipeline-runtime.sh first."
+  else
+    rr_error "Prepared repository directory is missing: ${repo_dir}. Run setup-pipeline-runtime.sh first."
+  fi
+  return 1
 }
 
 rr_require_repo_layout() {

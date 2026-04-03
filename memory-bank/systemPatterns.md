@@ -31,8 +31,8 @@
 - Review hooks run on PR create/update.
 - Distill hooks run post-merge or on chosen trigger.
 - Refine runs on monthly schedule or on-demand trigger once sufficient DPO data exists.
-- Build Pipeline step scripts use clone-first bootstrap:
-  - clone remote repository from `RR_REPOSITORY_CLONE_URL`,
-  - remove existing clone dir and re-clone for deterministic state,
-  - re-exec same step script from cloned `scripts/build-pipeline/` path,
-  - then run existing runtime validation + Python flow invocation.
+- Build Pipeline scripts follow setup-first bootstrap:
+  - `setup-pipeline-runtime.sh` clones remote repository from `RR_REPOSITORY_CLONE_URL`,
+  - setup removes existing clone dir and performs a fresh clone for deterministic state,
+  - setup creates/updates runtime virtualenv and installs dependencies,
+  - `review-step.sh` / `distill-step.sh` / `refine-step.sh` run against the prepared checkout/runtime and fail fast if setup has not been run.

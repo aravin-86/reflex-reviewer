@@ -20,7 +20,6 @@ PR id resolution order:
   6) PULL_REQUEST_ID
 
 Required environment variables:
-  RR_REPOSITORY_CLONE_URL
   TEAM_NAME
   DRAFT_MODEL
   VCS_BASE_URL
@@ -36,8 +35,7 @@ LiteLLM auth:
   - or OAUTH2_TOKEN_URL + OAUTH2_USER_ID + OAUTH2_USER_SECRET
 
 Optional:
-  RR_REPOSITORY_DIR (default: <cwd>/.reflex-reviewer-clone)
-  RR_REPOSITORY_REF (optional branch/tag for clone)
+  RR_REPOSITORY_DIR (prepared checkout dir from setup script; default: <cwd>/.reflex-reviewer-clone)
   PYTHON_BIN (optional explicit interpreter override)
   RR_VENV_DIR (optional explicit venv dir override; resolved as <RR_VENV_DIR>/bin/python)
   Default runtime without overrides: <repo>/.venv/bin/python
@@ -49,8 +47,6 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-rr_bootstrap_cloned_pipeline_script "$(basename "${BASH_SOURCE[0]}")" "$@"
-
 PR_ID_INPUT=""
 if [[ $# -gt 0 && "${1}" =~ ^[0-9]+$ ]]; then
   PR_ID_INPUT="$1"
@@ -58,8 +54,7 @@ if [[ $# -gt 0 && "${1}" =~ ^[0-9]+$ ]]; then
 fi
 EXTRA_ARGS=("$@")
 
-REPO_ROOT="$(rr_repo_root_from_script_dir "${SCRIPT_DIR}")"
-rr_require_repo_layout "${REPO_ROOT}"
+REPO_ROOT="$(rr_require_prepared_repository_checkout "${SCRIPT_DIR}")"
 
 PYTHON_BIN="$(rr_python_bin "${REPO_ROOT}")"
 rr_require_runtime_installation "${PYTHON_BIN}" "${REPO_ROOT}"

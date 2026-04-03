@@ -9,9 +9,10 @@ print_usage() {
   cat <<'USAGE'
 Usage: setup-pipeline-runtime.sh [options]
 
-Creates/updates the cloned repository local virtualenv used by
-Build Pipeline step scripts and installs required Python packages
-from requirements.txt.
+Performs Build Pipeline setup by:
+1) creating a fresh repository clone into RR_REPOSITORY_DIR
+2) creating/updating runtime virtualenv
+3) installing required Python packages from requirements.txt
 
 Options:
   --venv-dir <path>     Virtualenv directory
@@ -41,8 +42,6 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   print_usage
   exit 0
 fi
-
-rr_bootstrap_cloned_pipeline_script "$(basename "${BASH_SOURCE[0]}")" "$@"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,7 +79,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-REPO_ROOT="$(rr_repo_root_from_script_dir "${SCRIPT_DIR}")"
+REPO_ROOT="$(rr_clone_repository_checkout)"
 rr_require_repo_layout "${REPO_ROOT}"
 
 if [[ -z "${VENV_DIR}" ]]; then
@@ -121,6 +120,9 @@ rr_log "Installing runtime dependencies from requirements.txt"
 rr_require_runtime_installation "${VENV_PYTHON}" "${REPO_ROOT}"
 
 rr_log "Runtime setup complete"
+echo ""
+echo "Use this repository checkout for pipeline step scripts:"
+echo "  export RR_REPOSITORY_DIR=${REPO_ROOT}"
 echo ""
 echo "Use this interpreter for pipeline step scripts:"
 echo "  export PYTHON_BIN=${VENV_PYTHON}"

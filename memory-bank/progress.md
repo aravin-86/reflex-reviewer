@@ -6,7 +6,7 @@
 - ✅ Build Pipeline repository-committed pipeline step scripts added for review/distill/refine lifecycle execution.
 - ✅ README expanded with Build Pipeline pipeline-step setup and architecture best-practice guidance.
 - ✅ Build Pipeline runtime hardening added with dedicated virtualenv bootstrap and fail-fast dependency/runtime checks.
-- ✅ Build Pipeline clone-first bootstrap added so step scripts run from a freshly cloned remote repository checkout.
+- ✅ Build Pipeline setup-first bootstrap now centralizes clone/runtime prep in setup script; execution step scripts require prepared checkout/runtime.
 - ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY`) with test-file comments forced to `ADVISORY`.
 - ✅ Local/unit test bootstrap unblocked in this environment using isolated virtualenv + explicit dependency install path.
 
@@ -24,11 +24,12 @@
   - `refine-step.sh` on monthly/on-demand triggers.
 - Build Pipeline runtime bootstrap script:
   - `setup-pipeline-runtime.sh` to create/update dedicated venv and install from `requirements.txt`.
-- Build Pipeline clone bootstrap behavior:
-  - `RR_REPOSITORY_CLONE_URL` required for step scripts and setup script,
+- Build Pipeline setup-first bootstrap behavior:
+  - `RR_REPOSITORY_CLONE_URL` required for setup script,
   - optional clone location override via `RR_REPOSITORY_DIR`,
   - optional branch/tag selection via `RR_REPOSITORY_REF`,
-  - existing clone directory removed and re-cloned for deterministic execution.
+  - setup script always removes existing clone directory and performs a fresh clone for deterministic execution,
+  - review/distill/refine scripts do not clone and fail fast unless setup has prepared repo/runtime.
 - Pipeline step preflight validations:
   - Python version check (3.9+),
   - required module import checks,
@@ -46,6 +47,43 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated dependency manifest:
+  - removed explicit `certifi>=2026.0.0` from `requirements.txt`.
+  - rationale: project no longer carries a direct certifi dependency pin and relies on default certificate handling from Python/runtime stack.
+- Verification notes:
+  - repo-owned `certifi` references were scanned under `reflex_reviewer/`, `tests/`, `scripts/`, and `memory-bank/`; no additional direct usage references found.
+
+- Updated Build Pipeline setup/step contract to setup-first flow:
+  - `scripts/build-pipeline/setup-pipeline-runtime.sh` now performs clone directly and owns repository/runtime bootstrap.
+  - removed clone/re-exec bootstrap path from step scripts:
+    - `scripts/build-pipeline/review-step.sh`
+    - `scripts/build-pipeline/distill-step.sh`
+    - `scripts/build-pipeline/refine-step.sh`
+  - Added prepared-checkout validation helper in `scripts/build-pipeline/common.sh`:
+    - `rr_require_prepared_repository_checkout`
+  - Step scripts now fail fast with clear guidance to run setup first when checkout/runtime is missing.
+- Updated `README.md` Build Pipeline docs:
+  - clarified that only setup clones repository,
+  - documented setup-first invocation order,
+  - updated script examples to use `RR_REPOSITORY_DIR` for step execution.
+- Updated memory bank docs:
+  - `memory-bank/systemPatterns.md` operational flow updated to setup-first model,
+  - `memory-bank/activeContext.md` decisions updated to remove step clone/re-exec model.
+- Verification notes:
+  - pending shell syntax validation for modified scripts.
+
+- Updated `scripts/build-pipeline/common.sh` clone bootstrap behavior:
+  - Removed git-checkout reuse path for `RR_REPOSITORY_DIR`.
+  - Clone helper now always removes existing `RR_REPOSITORY_DIR` (when present) and performs a fresh clone from `RR_REPOSITORY_CLONE_URL`.
+  - This keeps pipeline script/runtime execution aligned to latest remote state and avoids stale cloned script/code execution.
+- Updated `README.md` Build Pipeline clone behavior docs:
+  - Documented always-remove-then-clone semantics for `RR_REPOSITORY_DIR`.
+  - Added note to use `RR_VENV_DIR` outside `RR_REPOSITORY_DIR` if virtualenv reuse is desired across runs.
+- Updated `memory-bank/activeContext.md`:
+  - Replaced prior “reuse existing git checkout” decision with new “always fresh clone” decision.
+- Verification notes:
+  - `bash -n scripts/build-pipeline/common.sh scripts/build-pipeline/review-step.sh scripts/build-pipeline/distill-step.sh scripts/build-pipeline/refine-step.sh scripts/build-pipeline/setup-pipeline-runtime.sh` passes.
+
 - Updated `reflex_reviewer/litellm_client.py`:
   - Added safe helper functions to estimate context-window token size from request payload text without logging raw content.
   - Added `context_window_size_tokens_estimate` to request logs for:

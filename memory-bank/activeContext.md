@@ -1,8 +1,8 @@
 # Active Context
 
 ## Current focus
-- Keep Build Pipeline execution simple with clone-first repository bootstrapping.
-- Ensure Build Pipeline step scripts run from cloned repo context with cloned-repo local `.venv` runtime by default.
+- Keep Build Pipeline execution simple with setup-first repository/runtime bootstrapping.
+- Ensure Build Pipeline step scripts run from setup-prepared repo context with cloned-repo local `.venv` runtime by default.
 - Keep runtime setup hardened for Build Pipeline runner hosts using cloned-repo local virtualenv bootstrap and fail-fast checks.
 - Keep local unit-test bootstrap deterministic under PEP 668 environments via isolated virtualenv usage.
 - Enforce strict inline comment severity taxonomy in review/distill flows:
@@ -41,9 +41,9 @@
 - Use `requirements.txt` for pipeline-runner runtime dependency installation in cloned repo local `.venv` (overrideable via `RR_VENV_DIR`).
 - Add fail-fast runtime checks in Build Pipeline scripts for Python version, required module imports, repository layout, and data-directory writability.
 - Prefer runtime auto-discovery via `<repo>/.venv/bin/python` with `PYTHON_BIN` / `RR_VENV_DIR` overrides.
-- Build Pipeline step scripts now bootstrap by cloning `RR_REPOSITORY_CLONE_URL` into `RR_REPOSITORY_DIR` before execution.
-- Clone flow now reuses `RR_REPOSITORY_DIR` when it already contains a git checkout (`.git/`) so local `.venv` persists across step runs; non-git directories are removed and recloned.
-- Step scripts re-exec from the cloned repository's `scripts/build-pipeline/` path using `RR_USE_CLONED_PIPELINE_SCRIPT=1` guard to avoid recursion.
+- `setup-pipeline-runtime.sh` is now the only script that clones `RR_REPOSITORY_CLONE_URL` into `RR_REPOSITORY_DIR`.
+- Setup clone flow always removes `RR_REPOSITORY_DIR` (when present) and performs a fresh clone for deterministic execution.
+- Step scripts (`review-step.sh` / `distill-step.sh` / `refine-step.sh`) no longer clone/re-exec; they fail fast unless setup has prepared repository/runtime.
 - Optional clone target selection supported via `RR_REPOSITORY_REF` (branch/tag).
 - Pipeline runtime resolver now logs selected interpreter path with minimal safe verbosity.
 - Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
@@ -70,10 +70,11 @@
   - next target: **GitHub support**.
 - LiteLLM client request logs now include a safe, best-effort context-window token estimate for both Chat Completions and Responses API calls.
 - Context-window token estimate uses a lightweight character-based heuristic (~4 chars/token) and avoids logging raw prompt/input payloads.
+- Removed explicit `certifi` pin from `requirements.txt`; runtime dependency set now relies on Python/requests default certificate handling without a direct project-level certifi requirement.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.
-- Add automated shell tests for clone-bootstrap and re-exec behavior in pipeline scripts.
+- Add automated shell tests for setup-first bootstrap and step precondition behavior in pipeline scripts.
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).
 - Plan and implement vector-DB-backed preference memory from distilled DPO pairs for on-the-fly review guidance (retrieve accepted/rejected exemplars during `review`, keep `refine` as offline optimization).
 - Add dedicated unit coverage for judge-stage payload quality constraints (for example, verifying invalid anchor removal and schema-safe rewriting behavior).
