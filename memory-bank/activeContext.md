@@ -68,6 +68,8 @@
 - README now clearly states VCS support status in prominent/limitations/future sections:
   - current support: **Bitbucket Data Center only**,
   - next target: **GitHub support**.
+- LiteLLM client request logs now include a safe, best-effort context-window token estimate for both Chat Completions and Responses API calls.
+- Context-window token estimate uses a lightweight character-based heuristic (~4 chars/token) and avoids logging raw prompt/input payloads.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

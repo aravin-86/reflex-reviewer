@@ -356,6 +356,7 @@ class LiteLLMClientTests(unittest.TestCase):
         logs_text = "\n".join(logs.output)
         self.assertIn("Skipping reasoning config for responses API model=oca/gpt-4.1", logs_text)
         self.assertIn("Calling LiteLLM responses API: model=oca/gpt-4.1", logs_text)
+        self.assertIn("context_window_size_tokens_estimate=", logs_text)
         self.assertNotIn("reasoning_effort=", logs_text)
 
     @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
@@ -383,7 +384,45 @@ class LiteLLMClientTests(unittest.TestCase):
 
         logs_text = "\n".join(logs.output)
         self.assertIn("Calling LiteLLM responses API: model=oca/grok4-fast-reasoning", logs_text)
+        self.assertIn("context_window_size_tokens_estimate=", logs_text)
         self.assertIn("reasoning_effort=high", logs_text)
+
+    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.litellm_client.requests.post")
+    def test_chat_completion_logs_context_window_size_tokens_estimate(
+        self, mock_post, _mock_token
+    ):
+        payload = {
+            "id": "chatcmpl-log",
+            "object": "chat.completion",
+            "created": 1774606584,
+            "model": "oca/grok4-fast-reasoning",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"sentiment":"ACCEPTED"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        mock_post.return_value = _mock_response(text=f"data: {json.dumps(payload)}\n\n")
+
+        with self.assertLogs("reflex_reviewer.litellm_client", level="INFO") as logs:
+            chat_completions(
+                model="oca/grok4-fast-reasoning",
+                messages=[{"role": "user", "content": "hello"}],
+                stream=False,
+            )
+
+        logs_text = "\n".join(logs.output)
+        self.assertIn(
+            "Calling LiteLLM chat completion: model=oca/grok4-fast-reasoning",
+            logs_text,
+        )
+        self.assertIn("context_window_size_tokens_estimate=", logs_text)
 
     @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
     @patch(

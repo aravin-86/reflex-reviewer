@@ -46,6 +46,19 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `reflex_reviewer/litellm_client.py`:
+  - Added safe helper functions to estimate context-window token size from request payload text without logging raw content.
+  - Added `context_window_size_tokens_estimate` to request logs for:
+    - `chat_completions()`
+    - `responses()` (both reasoning and non-reasoning log branches)
+  - Kept estimation lightweight via character-length heuristic (~4 chars/token) to avoid new tokenizer dependencies.
+- Updated `tests/test_litellm_client.py`:
+  - Extended existing response logging tests to assert `context_window_size_tokens_estimate` is present.
+  - Added coverage for chat-completions logging path to assert `context_window_size_tokens_estimate` is present.
+- Verification notes:
+  - `python3 -m unittest discover -s tests -p 'test_litellm_client.py'` fails in this environment due to missing dependency: `requests`.
+  - `python3 -m compileall reflex_reviewer/litellm_client.py tests/test_litellm_client.py` passes.
+
 - Updated `README.md` to clearly communicate VCS support status:
   - Added a prominent top-level note: current support is **Bitbucket Data Center only**.
   - Explicitly documented that **GitHub support is the next target** and not yet available.

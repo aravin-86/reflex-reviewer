@@ -112,6 +112,28 @@ def _supports_reasoning_effort(model):
     )
 
 
+def _estimate_text_characters(value):
+    if isinstance(value, str):
+        return len(value)
+
+    if isinstance(value, list):
+        return sum(_estimate_text_characters(item) for item in value)
+
+    if isinstance(value, dict):
+        return sum(_estimate_text_characters(item) for item in value.values())
+
+    return 0
+
+
+def _estimate_context_window_tokens(payload_items):
+    """Best-effort token estimate for logs using an average 4 chars/token heuristic."""
+    total_characters = _estimate_text_characters(payload_items)
+    if total_characters <= 0:
+        return 0
+
+    return (total_characters + 3) // 4
+
+
 @retry(
     wait=wait_exponential(multiplier=1, min=2, max=20),
     stop=stop_after_attempt(3),
@@ -425,13 +447,16 @@ def chat_completions(model, messages, stream=False, pr_id=None):
     runtime_config = _get_litellm_runtime_config()
     token = _resolve_litellm_auth_token(runtime_config)
     payload = {"model": model, "messages": messages}
+    message_count = len(messages) if isinstance(messages, list) else 0
+    context_window_size_tokens_estimate = _estimate_context_window_tokens(messages)
 
     accept_header = "text/event-stream"
     logger.info(
-        "Calling LiteLLM chat completion: model=%s, stream=%s, message_count=%s, proxies_enabled=%s",
+        "Calling LiteLLM chat completion: model=%s, stream=%s, message_count=%s, context_window_size_tokens_estimate=%s, proxies_enabled=%s",
         model,
         stream,
-        len(messages),
+        message_count,
+        context_window_size_tokens_estimate,
         bool(runtime_config.get("proxies")),
     )
     try:
@@ -512,21 +537,28 @@ def responses(
     if store:
         payload["store"] = True
 
+    input_item_count = len(input_items) if isinstance(input_items, list) else 0
+    context_window_size_tokens_estimate = _estimate_context_window_tokens(input_items)
+
     accept_header = "application/json, text/event-stream"
     if applied_reasoning_effort is not None:
         logger.info(
-            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s, reasoning_effort=%s",
+            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, reasoning_effort=%s",
             model,
             stream,
             bool(previous_response_id),
+            input_item_count,
+            context_window_size_tokens_estimate,
             applied_reasoning_effort,
         )
     else:
         logger.info(
-            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s",
+            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s",
             model,
             stream,
             bool(previous_response_id),
+            input_item_count,
+            context_window_size_tokens_estimate,
         )
 
     try:
