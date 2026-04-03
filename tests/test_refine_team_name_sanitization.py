@@ -20,7 +20,7 @@ class RefineTeamNameSanitizationTests(unittest.TestCase):
         run_training_cycle(
             train_path="train.jsonl",
             val_path="val.jsonl",
-            primary_model="oca/gpt-4.1",
+            draft_model="oca/gpt-4.1",
             team_name=" Team/DEV-OPS "
         )
 
@@ -38,7 +38,7 @@ class RefineTeamNameSanitizationTests(unittest.TestCase):
             run_training_cycle(
                 train_path="train.jsonl",
                 val_path="val.jsonl",
-                primary_model="oca/gpt-4.1",
+                draft_model="oca/gpt-4.1",
                 team_name="---",
             )
 
@@ -65,7 +65,7 @@ class RefineSplitFilePathTests(unittest.TestCase):
                 refine_module.run(
                     dpo_training_data_dir=temp_dir,
                     team_name="TEAM",
-                    primary_model="oca/gpt-4.1",
+                    draft_model="oca/gpt-4.1",
                     stream_response=False,
                 )
 

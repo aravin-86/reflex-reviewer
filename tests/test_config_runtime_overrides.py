@@ -22,19 +22,27 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
     def tearDown(self):
         clear_runtime_overrides()
 
-    def test_primary_model_resolves_from_env_and_cli_override(self):
+    def test_draft_and_judge_models_resolve_from_env_and_cli_override(self):
         with patch.dict(
-            "os.environ", {"PRIMARY_MODEL": "env-model"}, clear=False
+            "os.environ",
+            {
+                "DRAFT_MODEL": "env-draft-model",
+                "JUDGE_MODEL": "env-judge-model",
+            },
+            clear=False,
         ):
             config = get_common_config()
-            self.assertEqual(config.get("primary_model"), "env-model")
+            self.assertEqual(config.get("draft_model"), "env-draft-model")
+            self.assertEqual(config.get("judge_model"), "env-judge-model")
 
             config_with_override = get_common_config(
-                {"primary_model": "cli-model"}
+                {
+                    "draft_model": "cli-draft-model",
+                    "judge_model": "cli-judge-model",
+                }
             )
-            self.assertEqual(
-                config_with_override.get("primary_model"), "cli-model"
-            )
+            self.assertEqual(config_with_override.get("draft_model"), "cli-draft-model")
+            self.assertEqual(config_with_override.get("judge_model"), "cli-judge-model")
 
     def test_stream_response_uses_model_section_and_cli_override(self):
         with patch.dict("os.environ", {"STREAM_RESPONSE": "false"}, clear=False):

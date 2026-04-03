@@ -7,7 +7,7 @@
 - ✅ README expanded with Build Pipeline pipeline-step setup and architecture best-practice guidance.
 - ✅ Build Pipeline runtime hardening added with dedicated virtualenv bootstrap and fail-fast dependency/runtime checks.
 - ✅ Build Pipeline clone-first bootstrap added so step scripts run from a freshly cloned remote repository checkout.
-- ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY|NITPICK`) with test-file comments forced to `ADVISORY`.
+- ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY`) with test-file comments forced to `ADVISORY`.
 - ✅ Local/unit test bootstrap unblocked in this environment using isolated virtualenv + explicit dependency install path.
 
 ## What currently works (project capabilities snapshot)
@@ -46,6 +46,46 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `README.md` to clearly communicate VCS support status:
+  - Added a prominent top-level note: current support is **Bitbucket Data Center only**.
+  - Explicitly documented that **GitHub support is the next target** and not yet available.
+  - Reinforced the same status in **Notes / limitations** and **Future improvements** sections.
+- Updated `memory-bank/activeContext.md`:
+  - Captured README documentation update for explicit current/next VCS support status.
+
+- Removed obsolete Bitbucket Cloud pipeline example directory and references:
+  - removed stale pipeline example assets from the repository
+  - removed related ignore/doc references from `.gitignore` and `README.md`
+  - cleaned historical directory-path mentions from memory-bank progress notes
+- Updated model naming and review orchestration for LLM-as-a-Judge:
+  - Replaced `PRIMARY_MODEL` usage with explicit `DRAFT_MODEL` + `JUDGE_MODEL` config in runtime (`reflex_reviewer/config.py`, `reflex_reviewer.toml`, `.env.example`).
+  - Updated review flow (`reflex_reviewer/review.py`) to execute two-stage inference:
+    1) draft review generation via `DRAFT_MODEL`,
+    2) judge filtering/rewrite via `JUDGE_MODEL`.
+  - Added judge prompts:
+    - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+  - Updated distill/refine naming consistency to use `draft_model` / `--draft-model` (`reflex_reviewer/distill.py`, `reflex_reviewer/refine.py`).
+  - Updated build/pipeline wrappers and examples to require/use new model env/flags:
+    - `scripts/build-pipeline/common.sh`
+    - `scripts/build-pipeline/review-step.sh`
+    - `scripts/build-pipeline/distill-step.sh`
+    - `scripts/build-pipeline/refine-step.sh`
+  - Updated tests for new model naming and two-stage review call expectations:
+    - `tests/test_config_runtime_overrides.py`
+    - `tests/test_review_model_api.py`
+    - `tests/test_refine_team_name_sanitization.py`
+  - Updated documentation for new model names and review flow behavior:
+    - `README.md`
+    - `.env.example`
+    - `reflex_reviewer.toml`
+- Verification notes:
+  - `python3 -m compileall reflex_reviewer tests` passes.
+  - Full suite with system python still fails due to missing deps in this environment (`requests`, `dotenv`).
+  - Targeted updated tests pass in local venv:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides tests.test_review_model_api tests.test_refine_team_name_sanitization`
+    - Result: `Ran 35 tests ... OK`.
+
 - Updated `reflex_reviewer/oauth2.py`:
   - Added executable `main()` entrypoint and module guard so OAuth2 token retrieval can be run directly via `python3 -m reflex_reviewer.oauth2`.
   - Added minimal CLI logging bootstrap and error handling that exits non-zero on failure.
@@ -103,7 +143,7 @@
 
 - Updated `reflex_reviewer/review.py`:
   - Added centralized severity normalization and test-file detection helpers.
-  - Enforced supported severity set (`CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`) with `ADVISORY` fallback.
+  - Enforced supported severity set (`CRITICAL`, `MAJOR`, `ADVISORY`) with `ADVISORY` fallback.
   - Coerced severities to `ADVISORY` for test-file comments in parsing, dedupe keying, and posting paths.
 - Updated `reflex_reviewer/distill.py`:
   - Added severity parsing/normalization helpers and test-file advisory coercion.

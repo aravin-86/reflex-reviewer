@@ -2,6 +2,9 @@
 
 Reflex Reviewer is an **automated AI code review** system for pull requests (PRs), designed with a pluggable VCS integration layer.
 
+> **VCS support status:** Reflex Reviewer currently supports **Bitbucket Data Center only**.  
+> **GitHub support is the next target** and is not available yet.
+
 It runs as a self-improving loop:
 - review PRs,
 - collect human feedback on review comments,
@@ -32,7 +35,6 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
   - [6) VCS pipeline steps](#6-vcs-pipeline-steps)
     - [Build Pipeline step scripts (repository-committed)](#build-pipeline-step-scripts-repository-committed)
     - [Best-practice Build Pipeline step architecture](#best-practice-build-pipeline-step-architecture)
-    - [Bitbucket Cloud-specific reference](#bitbucket-cloud-specific-reference)
   - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
     - [Install from TestPyPI](#install-from-testpypi)
     - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
@@ -49,13 +51,14 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
 %%{init: {'themeVariables': {'fontSize': '25px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'stepAfter', 'nodeSpacing': 90, 'rankSpacing': 110, 'padding': 20}} }%%
 flowchart TB
     classDef largeText fill:#e1f5fe,stroke:#01579b,stroke-width:3px,font-size:25px;
-    class repo,pipelineHooks,scheduler,review,feedback,distill,data,refine largeText;
+    class repo,pipelineHooks,scheduler,draftReview,judgeReview,feedback,distill,data,refine largeText;
 
     subgraph reviewLoop["Review Loop"]
       direction LR
       repo["VCS Repository"]
       pipelineHooks["Pipeline Hooks<br/>(PR updates, post-merge)"]
-      review["review.py<br/>Review (Actuator)"]
+      draftReview["review.py<br/>Draft Review (DRAFT_MODEL)"]
+      judgeReview["review.py<br/>LLM Judge (JUDGE_MODEL)"]
       feedback["Human feedback on AI comments"]
     end
 
@@ -68,15 +71,16 @@ flowchart TB
     end
 
     repo --> pipelineHooks
-    pipelineHooks -->|PR created / updated| review
-    review -->|Posts review comments| repo
+    pipelineHooks -->|PR created / updated| draftReview
+    draftReview -->|Draft payload| judgeReview
+    judgeReview -->|Posts review comments| repo
     repo -->|Reviewer replies / reactions| feedback
     feedback --> distill
     pipelineHooks -->|Post-merge trigger| distill
     distill --> data
     scheduler -->|Monthly schedule / on-demand| refine
     data --> refine
-    refine -->|Improved model behavior| review
+    refine -->|Improved model behavior| draftReview
 
     linkStyle default stroke:#01579b,stroke-width:4px;
 ```
@@ -85,16 +89,19 @@ flowchart TB
    - Fetches PR diff + metadata from configured VCS provider
    - Fetches paginated PR activities/comments to reduce repetitive suggestions
    - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
-   - Calls the configured review model and parses structured output (`verdict`, `summary`, `checklist`, `comments`)
-   - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`
+   - Runs two-stage review inference:
+     - `DRAFT_MODEL` produces the draft structured review payload,
+     - `JUDGE_MODEL` filters/re-writes draft output into final payload.
+   - Parses structured output (`verdict`, `summary`, `checklist`, `comments`)
+   - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`
    - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
-   - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context when a response id is available
+   - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context for the draft stage response when a response id is available
    - Posts summary and optional inline comments back to VCS
 
 2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**
    - Reads paginated PR activities and builds root comment threads
    - Ranks threads by reply count and selects top configured threads
-   - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY|NITPICK`) with test-file comments coerced to `ADVISORY`
+   - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY`) with test-file comments coerced to `ADVISORY`
    - Runs one batched LiteLLM classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`
    - Appends only high-confidence preference samples (`ACCEPTED` / `REJECTED`) to the DPO dataset
 
@@ -182,13 +189,15 @@ Where `sanitized_team_name` is generated from `--team-name` by:
 - replacing non-alphanumeric separators with `_` (for example, `TEAM-DEV` → `team_dev`).
 
 Model/runtime values can be set in `reflex_reviewer.toml` under `[model]`:
-- `primary_model`
+- `draft_model`
+- `judge_model`
 - `stream_response`
 - `model_endpoint` (`chat_completions` default, or `responses` if your org/backend supports stateful `previous_response_id` flows)
 - `reasoning_effort`
 
 CLI can still override model values when needed:
-- `--primary-model`
+- `--draft-model`
+- `--judge-model` (review flow)
 - `--stream-response`
 
 Common optional CLI arguments:
@@ -211,15 +220,15 @@ Reflex Reviewer is designed around three generic pipeline step trigger types:
 
 1. **PR create/update pipeline step**
    - Runs review flow:
-   - `python3 -m reflex_reviewer.review --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"`
+   - `python3 -m reflex_reviewer.review --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --judge-model "<JUDGE_MODEL>"`
 
 2. **Post-merge pipeline step (target branch updates)**
    - Runs distill flow:
-   - `python3 -m reflex_reviewer.distill --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+   - `python3 -m reflex_reviewer.distill --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 
 3. **Monthly/on-demand pipeline step**
    - Runs refine flow:
-   - `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+   - `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 
 ### Build Pipeline step scripts (repository-committed)
 
@@ -258,7 +267,8 @@ Required environment variables:
 
 - `RR_REPOSITORY_CLONE_URL`
 - `TEAM_NAME`
-- `PRIMARY_MODEL`
+- `DRAFT_MODEL`
+- `JUDGE_MODEL` (required by `review-step.sh`)
 - `VCS_BASE_URL`
 - `VCS_PROJECT_KEY`
 - `VCS_REPO_SLUG`
@@ -338,10 +348,6 @@ Recommended operational setup:
 4. Keep `refine-step.sh` asynchronous (monthly/on-demand) rather than tied to synchronous PR pipeline latency.
 5. Keep all model/VCS endpoint values centralized through environment + `reflex_reviewer.toml`.
 
-### Bitbucket Cloud-specific reference
-
-For a concrete Bitbucket Pipeline implementation, see: **`bitbucket-pipelines.yml`**.
-
 ---
 
 ## 7) Package-first usage (PyPI-ready)
@@ -394,16 +400,17 @@ import reflex_reviewer
 
 reflex_reviewer.review(
     team_name="<TEAM_NAME>",
-    primary_model="<PRIMARY_MODEL>",
+    draft_model="<DRAFT_MODEL>",
+    judge_model="<JUDGE_MODEL>",
 )
 reflex_reviewer.distill(
     team_name="<TEAM_NAME>",
-    primary_model="<PRIMARY_MODEL>",
+    draft_model="<DRAFT_MODEL>",
     dpo_training_data_dir="<TRAINING_DATA_DIR>",
 )
 reflex_reviewer.refine(
     team_name="<TEAM_NAME>",
-    primary_model="<PRIMARY_MODEL>",
+    draft_model="<DRAFT_MODEL>",
     dpo_training_data_dir="<TRAINING_DATA_DIR>",
 )
 ```
@@ -458,7 +465,8 @@ Run review for specific PR:
 ```bash
 python3 -m reflex_reviewer.review \
   --team-name "<TEAM_NAME>" \
-  --primary-model "<PRIMARY_MODEL>" \
+  --draft-model "<DRAFT_MODEL>" \
+  --judge-model "<JUDGE_MODEL>" \
   --pr-id <PR_ID>
 ```
 
@@ -467,7 +475,7 @@ Run distill:
 ```bash
 python3 -m reflex_reviewer.distill \
   --team-name "<TEAM_NAME>" \
-  --primary-model "<PRIMARY_MODEL>" \
+  --draft-model "<DRAFT_MODEL>" \
   --dpo-training-data-dir "<TRAINING_DATA_DIR>" \
   --pr-id <PR_ID>
 ```
@@ -477,7 +485,7 @@ Run refine:
 ```bash
 python3 -m reflex_reviewer.refine \
   --team-name "<TEAM_NAME>" \
-  --primary-model "<PRIMARY_MODEL>" \
+  --draft-model "<DRAFT_MODEL>" \
   --dpo-training-data-dir "<TRAINING_DATA_DIR>"
 ```
 
@@ -515,7 +523,8 @@ cp reflex-reviewer/.env.example .env
 Then update `.env` with your runtime values:
 
 - VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
-- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `PRIMARY_MODEL`.
+- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `DRAFT_MODEL`.
+- Judge model (review flow): `JUDGE_MODEL`.
 - Auth (choose one):
   - Set `LITELLM_API_KEY`, **or**
   - Leave `LITELLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
@@ -529,16 +538,18 @@ set -a; source .env; set +a
 
 Run review:
 
-- `python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>"`
+- `python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --judge-model "<JUDGE_MODEL>"`
 
 Post-merge and monthly/on-demand jobs:
-- `python3 -m reflex_reviewer.distill --vcs-type bitbucket --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
-- `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --primary-model "<PRIMARY_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+- `python3 -m reflex_reviewer.distill --vcs-type bitbucket --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+- `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
 
 ---
 
 ## 10) Notes / limitations
 
+- Current VCS integration support is limited to **Bitbucket Data Center**.
+- **GitHub support is planned next** and is not yet implemented.
 - Distillation quality depends on reviewer feedback quality and thread clarity.
 - `UNSURE`/ambiguous sentiment threads are skipped to protect DPO data quality.
 - Very large PRs may be truncated for safety limits.
@@ -548,6 +559,7 @@ Post-merge and monthly/on-demand jobs:
 
 ## 11) Future improvements
 
+- Add **GitHub** VCS integration as the next supported provider.
 - Add stronger sample deduplication and lineage tracking for DPO data.
 - Track precision/acceptance metrics over time to quantify improvements.
 - Add confidence thresholds before posting high-severity inline comments.

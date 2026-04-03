@@ -14,7 +14,7 @@ Runs Reflex Reviewer refine flow for monthly scheduled or on-demand steps.
 Required environment variables:
   RR_REPOSITORY_CLONE_URL
   TEAM_NAME
-  PRIMARY_MODEL
+  DRAFT_MODEL
   VCS_BASE_URL
   VCS_PROJECT_KEY
   VCS_REPO_SLUG
@@ -59,7 +59,7 @@ rr_log "Invoking refine flow."
 cmd=(
   "${PYTHON_BIN}" -m reflex_reviewer.refine
   --team-name "${TEAM_NAME}"
-  --primary-model "${PRIMARY_MODEL}"
+  --draft-model "${DRAFT_MODEL}"
   --dpo-training-data-dir "${DPO_TRAINING_DATA_DIR}"
 )
 

@@ -333,7 +333,8 @@ def get_common_config(overrides=None):
 
     return {
         "team_name": _resolve_override_only(overrides, "team_name"),
-        "primary_model": model_config.get("primary_model"),
+        "draft_model": model_config.get("draft_model"),
+        "judge_model": model_config.get("judge_model"),
         "stream_response": bool(model_config.get("stream_response")),
         "model_endpoint": model_config.get("model_endpoint"),
         "dpo_training_data_dir": _resolve_override_only(
@@ -355,16 +356,27 @@ def get_model_config(overrides=None):
         default=True,
     )
 
-    primary_model = _resolve_toml_value(
+    draft_model = _resolve_toml_value(
         overrides,
-        "primary_model",
+        "draft_model",
         "model",
-        "primary_model",
+        "draft_model",
     )
-    if primary_model is not None:
-        primary_model = str(primary_model).strip()
-        if not primary_model:
-            primary_model = None
+    if draft_model is not None:
+        draft_model = str(draft_model).strip()
+        if not draft_model:
+            draft_model = None
+
+    judge_model = _resolve_toml_value(
+        overrides,
+        "judge_model",
+        "model",
+        "judge_model",
+    )
+    if judge_model is not None:
+        judge_model = str(judge_model).strip()
+        if not judge_model:
+            judge_model = None
 
     model_endpoint = _normalize_model_endpoint(
         _resolve_toml_value(
@@ -397,7 +409,8 @@ def get_model_config(overrides=None):
     )
 
     return {
-        "primary_model": primary_model,
+        "draft_model": draft_model,
+        "judge_model": judge_model,
         "stream_response": stream_response,
         "model_endpoint": model_endpoint,
         "reasoning_effort": reasoning_effort,

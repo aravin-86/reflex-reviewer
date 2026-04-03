@@ -56,7 +56,7 @@ def _resolve_runtime_settings(config_overrides=None):
         common_config.get("dpo_training_data_dir") or ""
     ).strip()
     team_name = str(common_config.get("team_name") or "")
-    primary_model = str(common_config.get("primary_model") or "")
+    draft_model = str(common_config.get("draft_model") or "")
     stream_response = bool(common_config.get("stream_response"))
 
     if not team_name:
@@ -74,8 +74,8 @@ def _resolve_runtime_settings(config_overrides=None):
             "refine.min_samples_to_train is required in reflex_reviewer.toml."
         )
 
-    if not primary_model:
-        raise ValueError("PRIMARY_MODEL is required. Pass --primary-model.")
+    if not draft_model:
+        raise ValueError("DRAFT_MODEL is required. Pass --draft-model.")
 
     dpo_training_data_file = resolve_dpo_training_data_file_path(
         team_name=team_name,
@@ -86,14 +86,14 @@ def _resolve_runtime_settings(config_overrides=None):
         "dpo_training_data_file": dpo_training_data_file,
         "dpo_training_data_dir": dpo_training_data_dir,
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
         "stream_response": stream_response,
     }
 
 
 def _build_runtime_overrides(
     team_name,
-    primary_model,
+    draft_model,
     stream_response,
     dpo_training_data_dir,
     vcs_base_url=None,
@@ -107,7 +107,7 @@ def _build_runtime_overrides(
 ):
     return {
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
         "stream_response": stream_response,
         "dpo_training_data_dir": dpo_training_data_dir,
         "vcs_base_url": vcs_base_url,
@@ -127,7 +127,7 @@ def _build_runtime_overrides(
     retry=retry_if_exception_type((requests.exceptions.RequestException,)),
     reraise=True,
 )
-def run_training_cycle(train_path, val_path, primary_model, team_name):
+def run_training_cycle(train_path, val_path, draft_model, team_name):
     sanitized_suffix = sanitize_team_name_for_identifier(team_name)
     training_file_id = upload_file(train_path, purpose="fine-tune")
     validation_file_id = upload_file(val_path, purpose="fine-tune")
@@ -135,7 +135,7 @@ def run_training_cycle(train_path, val_path, primary_model, team_name):
     job_id = create_fine_tune_job(
         training_file_id=training_file_id,
         validation_file_id=validation_file_id,
-        model=primary_model,
+        model=draft_model,
         method="dpo",
         suffix=sanitized_suffix,
     )
@@ -184,7 +184,7 @@ def wait_for_fine_tune_completion(job_id):
 def run(
     dpo_training_data_dir=None,
     team_name=None,
-    primary_model=None,
+    draft_model=None,
     stream_response=None,
     vcs_base_url=None,
     vcs_project_key=None,
@@ -197,7 +197,7 @@ def run(
 ):
     runtime_overrides = _build_runtime_overrides(
         team_name=team_name,
-        primary_model=primary_model,
+        draft_model=draft_model,
         stream_response=stream_response,
         dpo_training_data_dir=dpo_training_data_dir,
         vcs_base_url=vcs_base_url,
@@ -221,7 +221,7 @@ def run(
         train_file_path = split_file_paths["train"]
         val_file_path = split_file_paths["val"]
         run_team_name = runtime_settings["team_name"]
-        run_primary_model = runtime_settings["primary_model"]
+        run_draft_model = runtime_settings["draft_model"]
         run_stream_response = runtime_settings["stream_response"]
         logger.info("Refine runtime settings resolved. stream=%s", run_stream_response)
 
@@ -258,7 +258,7 @@ def run(
         job_id = run_training_cycle(
             train_file_path,
             val_file_path,
-            run_primary_model,
+            run_draft_model,
             run_team_name,
         )
         logger.info("DPO fine-tune job started. job_id=%s", job_id)
@@ -305,11 +305,11 @@ if __name__ == "__main__":
         help="Identifier for your team to the LLM model",
     )
     parser.add_argument(
-        "--primary-model",
+        "--draft-model",
         required=False,
         help=(
-            "Primary model used across review/distill/refine flows "
-            "(overrides model.primary_model in reflex_reviewer.toml)"
+            "Draft model used across distill/refine flows "
+            "(overrides model.draft_model in reflex_reviewer.toml)"
         ),
     )
     parser.add_argument(
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     run(
         dpo_training_data_dir=args.dpo_training_data_dir,
         team_name=args.team_name,
-        primary_model=args.primary_model,
+        draft_model=args.draft_model,
         stream_response=args.stream_response,
         vcs_base_url=args.vcs_base_url,
         vcs_project_key=args.vcs_project_key,

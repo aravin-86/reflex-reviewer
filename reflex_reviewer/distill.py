@@ -31,7 +31,7 @@ SENTIMENT_ACCEPTED = "ACCEPTED"
 SENTIMENT_REJECTED = "REJECTED"
 SENTIMENT_UNSURE = "UNSURE"
 VALID_SENTIMENTS = {SENTIMENT_ACCEPTED, SENTIMENT_REJECTED, SENTIMENT_UNSURE}
-ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY", "NITPICK"}
+ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
@@ -56,7 +56,7 @@ def _parse_bool(value):
 def _resolve_runtime_settings(config_overrides=None):
     common_config = get_common_config(config_overrides)
     team_name = str(common_config.get("team_name") or "")
-    primary_model = str(common_config.get("primary_model") or "")
+    draft_model = str(common_config.get("draft_model") or "")
     stream_response = bool(common_config.get("stream_response"))
     model_endpoint = (
         str(common_config.get("model_endpoint") or "responses").strip().lower()
@@ -75,8 +75,8 @@ def _resolve_runtime_settings(config_overrides=None):
             "DPO training data directory is required. Pass --dpo-training-data-dir."
         )
 
-    if not primary_model:
-        raise ValueError("PRIMARY_MODEL is required. Pass --primary-model.")
+    if not draft_model:
+        raise ValueError("DRAFT_MODEL is required. Pass --draft-model.")
 
     dpo_training_data_file = resolve_dpo_training_data_file_path(
         team_name=team_name,
@@ -85,7 +85,7 @@ def _resolve_runtime_settings(config_overrides=None):
 
     return {
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
         "stream_response": stream_response,
         "model_endpoint": model_endpoint,
         "dpo_training_data_file": dpo_training_data_file,
@@ -94,7 +94,7 @@ def _resolve_runtime_settings(config_overrides=None):
 
 def _build_runtime_overrides(
     team_name,
-    primary_model,
+    draft_model,
     stream_response,
     dpo_training_data_dir,
     vcs_base_url=None,
@@ -108,7 +108,7 @@ def _build_runtime_overrides(
 ):
     return {
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
         "stream_response": stream_response,
         "dpo_training_data_dir": dpo_training_data_dir,
         "vcs_base_url": vcs_base_url,
@@ -665,7 +665,7 @@ def _parse_batched_sentiment_response(response):
 
 def _resolve_thread_sentiments_with_llm(
     comment_threads,
-    primary_model=None,
+    draft_model=None,
     model_endpoint="responses",
     stream_response=False,
     team_name="",
@@ -673,11 +673,11 @@ def _resolve_thread_sentiments_with_llm(
     if not comment_threads:
         return {}
 
-    resolved_primary_model = str(primary_model or "")
+    resolved_draft_model = str(draft_model or "")
     resolved_model_endpoint = str(model_endpoint or "responses").strip().lower()
     logger.info(
         "Invoking batched LLM sentiment classification. model=%s endpoint=%s thread_count=%s stream=%s",
-        resolved_primary_model,
+        resolved_draft_model,
         resolved_model_endpoint,
         len(comment_threads),
         stream_response,
@@ -687,7 +687,7 @@ def _resolve_thread_sentiments_with_llm(
 
         if resolved_model_endpoint == "responses":
             response = responses(
-                model=resolved_primary_model,
+                model=resolved_draft_model,
                 input_items=model_messages,
                 stream=stream_response,
             )
@@ -699,7 +699,7 @@ def _resolve_thread_sentiments_with_llm(
                 )
 
             response = chat_completions(
-                model=resolved_primary_model,
+                model=resolved_draft_model,
                 messages=model_messages,
                 stream=stream_response,
             )
@@ -925,7 +925,7 @@ def run(
     vcs_type=None,
     pr_id=None,
     team_name=None,
-    primary_model=None,
+    draft_model=None,
     stream_response=None,
     dpo_training_data_dir=None,
     vcs_base_url=None,
@@ -939,7 +939,7 @@ def run(
 ):
     runtime_overrides = _build_runtime_overrides(
         team_name=team_name,
-        primary_model=primary_model,
+        draft_model=draft_model,
         stream_response=stream_response,
         dpo_training_data_dir=dpo_training_data_dir,
         vcs_base_url=vcs_base_url,
@@ -956,7 +956,7 @@ def run(
     try:
         runtime_settings = _resolve_runtime_settings(runtime_overrides)
         run_team_name = runtime_settings["team_name"]
-        run_primary_model = runtime_settings["primary_model"]
+        run_draft_model = runtime_settings["draft_model"]
         run_stream_response = runtime_settings["stream_response"]
         run_model_endpoint = runtime_settings["model_endpoint"]
         run_dpo_training_data_file = runtime_settings["dpo_training_data_file"]
@@ -1043,7 +1043,7 @@ def run(
 
         sentiment_by_comment_id = _resolve_thread_sentiments_with_llm(
             top_threads,
-            primary_model=run_primary_model,
+            draft_model=run_draft_model,
             model_endpoint=run_model_endpoint,
             stream_response=run_stream_response,
             team_name=run_team_name,
@@ -1174,11 +1174,11 @@ if __name__ == "__main__":
         help="Identifier for your team to the LLM model",
     )
     parser.add_argument(
-        "--primary-model",
+        "--draft-model",
         required=False,
         help=(
-            "Primary model used across review/distill/refine flows "
-            "(overrides model.primary_model in reflex_reviewer.toml)"
+            "Draft model used across distill/refine flows "
+            "(overrides model.draft_model in reflex_reviewer.toml)"
         ),
     )
     parser.add_argument(
@@ -1212,7 +1212,7 @@ if __name__ == "__main__":
         vcs_type=args.vcs_type,
         pr_id=args.pr_id,
         team_name=args.team_name,
-        primary_model=args.primary_model,
+        draft_model=args.draft_model,
         stream_response=args.stream_response,
         dpo_training_data_dir=args.dpo_training_data_dir,
         vcs_base_url=args.vcs_base_url,

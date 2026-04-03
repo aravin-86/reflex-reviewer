@@ -265,8 +265,13 @@ rr_validate_pr_id() {
 }
 
 rr_require_runtime_env() {
+  local require_judge_model="${1:-0}"
+
   rr_require_env "TEAM_NAME"
-  rr_require_env "PRIMARY_MODEL"
+  rr_require_env "DRAFT_MODEL"
+  if [[ "${require_judge_model}" == "1" ]]; then
+    rr_require_env "JUDGE_MODEL"
+  fi
   rr_require_env "VCS_BASE_URL"
   rr_require_env "VCS_PROJECT_KEY"
   rr_require_env "VCS_REPO_SLUG"

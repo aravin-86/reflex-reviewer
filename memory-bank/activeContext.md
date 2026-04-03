@@ -6,8 +6,9 @@
 - Keep runtime setup hardened for Build Pipeline runner hosts using cloned-repo local virtualenv bootstrap and fail-fast checks.
 - Keep local unit-test bootstrap deterministic under PEP 668 environments via isolated virtualenv usage.
 - Enforce strict inline comment severity taxonomy in review/distill flows:
-  - allowed severities: `CRITICAL`, `MAJOR`, `ADVISORY`, `NITPICK`
+  - allowed severities: `CRITICAL`, `MAJOR`, `ADVISORY`
   - comments on test files must always be `ADVISORY`.
+- Introduce simple LLM-as-a-Judge review orchestration with explicit `DRAFT_MODEL` + `JUDGE_MODEL` configuration.
 
 ## Current repository snapshot
 - Project is an automated AI PR review system with three operational flows:
@@ -24,7 +25,8 @@
 - README now includes:
   - required env/auth variables,
   - event-to-script architecture guidance,
-  - pipeline-runner runtime bootstrap instructions.
+  - pipeline-runner runtime bootstrap instructions,
+  - explicit VCS support status: Bitbucket Data Center only (current) and GitHub as next target.
 
 ## Important implementation preferences/rules (repo-local)
 - Keep runtime configuration centralized in `reflex_reviewer/config.py`.
@@ -54,9 +56,22 @@
 - Full unit suite verification performed successfully in local venv (`84 tests`, `OK`).
 - OAuth2 helper module now supports direct execution via `python3 -m reflex_reviewer.oauth2` to print access token to stdout for pipeline/shell usage.
 - Direct-run OAuth2 path configures minimal logging, preserves existing token cache/refresh behavior, and exits non-zero on fetch failures without logging token values.
+- Model configuration now uses explicit `DRAFT_MODEL` and `JUDGE_MODEL` names (replacing `PRIMARY_MODEL`) across runtime, CLI, TOML/env, and pipeline wrappers.
+- Review flow now runs a strict two-stage inference path:
+  - draft stage (`review_system_prompt.md` + `review_user_prompt.md`) using `DRAFT_MODEL`,
+  - judge stage (`judge_review_system_prompt.md` + `judge_review_user_prompt.md`) using `JUDGE_MODEL`.
+- Judge stage output is now the only payload posted to VCS; existing severity normalization, test-file advisory coercion, and dedupe safeguards remain in final posting path.
+- README architecture diagram now explicitly visualizes the review flow as `Draft Review (DRAFT_MODEL) -> LLM Judge (JUDGE_MODEL) -> VCS posting` to match runtime behavior.
+- Distill/refine flows and pipeline wrappers now consume `--draft-model` / `DRAFT_MODEL` naming for consistency.
+- Build Pipeline review preflight now requires `JUDGE_MODEL` in addition to `DRAFT_MODEL`.
+- Removed obsolete provider-specific pipeline example assets and cleaned corresponding repository/doc references.
+- README now clearly states VCS support status in prominent/limitations/future sections:
+  - current support: **Bitbucket Data Center only**,
+  - next target: **GitHub support**.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.
 - Add automated shell tests for clone-bootstrap and re-exec behavior in pipeline scripts.
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).
 - Plan and implement vector-DB-backed preference memory from distilled DPO pairs for on-the-fly review guidance (retrieve accepted/rejected exemplars during `review`, keep `refine` as offline optimization).
+- Add dedicated unit coverage for judge-stage payload quality constraints (for example, verifying invalid anchor removal and schema-safe rewriting behavior).

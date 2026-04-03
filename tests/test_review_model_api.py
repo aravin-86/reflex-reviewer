@@ -254,10 +254,11 @@ class ReviewModelApiTests(unittest.TestCase):
                 vcs_type="bitbucket",
                 pr_id=123,
                 team_name="TEAM-PRODUCT-CP-DEV",
-                primary_model="oca/gpt-4.1",
+                draft_model="oca/gpt-4.1",
+                judge_model="oca/gpt-4.1",
             )
 
-        kwargs = mock_get_review_model_completion.call_args.kwargs
+        kwargs = mock_get_review_model_completion.call_args_list[0].kwargs
         self.assertIsNone(kwargs.get("previous_response_id"))
         self.assertEqual(kwargs.get("store_response"), True)
         state_store.set_previous_response_id.assert_called_once_with(
@@ -324,10 +325,11 @@ class ReviewModelApiTests(unittest.TestCase):
                 vcs_type="bitbucket",
                 pr_id=123,
                 team_name="TEAM-PRODUCT-CP-DEV",
-                primary_model="oca/gpt-4.1",
+                draft_model="oca/gpt-4.1",
+                judge_model="oca/gpt-4.1",
             )
 
-        kwargs = mock_get_review_model_completion.call_args.kwargs
+        kwargs = mock_get_review_model_completion.call_args_list[0].kwargs
         self.assertEqual(kwargs.get("previous_response_id"), "resp_prev")
         self.assertEqual(kwargs.get("store_response"), False)
         state_store.set_previous_response_id.assert_called_once_with(

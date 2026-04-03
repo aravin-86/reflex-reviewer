@@ -22,7 +22,8 @@ PR id resolution order:
 Required environment variables:
   RR_REPOSITORY_CLONE_URL
   TEAM_NAME
-  PRIMARY_MODEL
+  DRAFT_MODEL
+  JUDGE_MODEL
   VCS_BASE_URL
   VCS_PROJECT_KEY
   VCS_REPO_SLUG
@@ -61,7 +62,7 @@ rr_require_repo_layout "${REPO_ROOT}"
 PYTHON_BIN="$(rr_python_bin "${REPO_ROOT}")"
 rr_require_runtime_installation "${PYTHON_BIN}" "${REPO_ROOT}"
 
-rr_require_runtime_env
+rr_require_runtime_env 1
 
 PR_ID="$(rr_resolve_pr_id "${PR_ID_INPUT}")" || {
   rr_error "Unable to resolve PR id from args/environment."
@@ -77,7 +78,8 @@ cmd=(
   "${PYTHON_BIN}" -m reflex_reviewer.review
   --vcs-type bitbucket
   --team-name "${TEAM_NAME}"
-  --primary-model "${PRIMARY_MODEL}"
+  --draft-model "${DRAFT_MODEL}"
+  --judge-model "${JUDGE_MODEL}"
   --pr-id "${PR_ID}"
 )
 

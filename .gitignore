@@ -10,7 +10,6 @@ __pycache__/
 venv/
 .build-pipeline-venv/
 .reflex-reviewer-clone/
-scripts/bitbucket-cloud/bitbucket-pipeline-schedule.sh
 
 .pytest_cache/
 .mypy_cache/

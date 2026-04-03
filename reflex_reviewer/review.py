@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import re
@@ -43,7 +44,7 @@ SKIP_FILES = review_config["skip_files"]
 MODEL_ENDPOINT = str(model_config.get("model_endpoint") or "responses").strip().lower()
 RESPONSE_STATE_FILE = review_config["response_state_file"]
 RESPONSE_STATE_TTL_DAYS = review_config["response_state_ttl_days"]
-ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY", "NITPICK"}
+ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
@@ -68,7 +69,8 @@ def _parse_bool(value):
 def _resolve_runtime_settings(config_overrides=None):
     common_config = get_common_config(config_overrides)
     team_name = str(common_config.get("team_name") or "")
-    primary_model = str(common_config.get("primary_model") or "")
+    draft_model = str(common_config.get("draft_model") or "")
+    judge_model = str(common_config.get("judge_model") or "")
     stream_response = bool(common_config.get("stream_response"))
 
     if not team_name:
@@ -76,19 +78,24 @@ def _resolve_runtime_settings(config_overrides=None):
             "TEAM_NAME is required. Pass --team-name (identifier for your team to the LLM model)."
         )
 
-    if not primary_model:
-        raise ValueError("PRIMARY_MODEL is required. Pass --primary-model.")
+    if not draft_model:
+        raise ValueError("DRAFT_MODEL is required. Pass --draft-model.")
+
+    if not judge_model:
+        raise ValueError("JUDGE_MODEL is required. Pass --judge-model.")
 
     return {
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
+        "judge_model": judge_model,
         "stream_response": stream_response,
     }
 
 
 def _build_runtime_overrides(
     team_name,
-    primary_model,
+    draft_model,
+    judge_model,
     stream_response,
     vcs_base_url=None,
     vcs_project_key=None,
@@ -101,7 +108,8 @@ def _build_runtime_overrides(
 ):
     return {
         "team_name": team_name,
-        "primary_model": primary_model,
+        "draft_model": draft_model,
+        "judge_model": judge_model,
         "stream_response": stream_response,
         "vcs_base_url": vcs_base_url,
         "vcs_project_key": vcs_project_key,
@@ -733,11 +741,30 @@ def post_inline_comment(vcs_client, pr_id, anchor, severity, text, team_name):
     return vcs_client.post_comment(pr_id, body, anchor=anchor)
 
 
+def _build_judge_prompt_user_content(
+    prompt_template,
+    pr_title,
+    pr_description,
+    safe_diff,
+    existing_feedback,
+    draft_review_data,
+):
+    draft_review_json = json.dumps(draft_review_data, ensure_ascii=False)
+    return (
+        prompt_template.replace("{{DIFF_CONTENT}}", safe_diff)
+        .replace("{{PR_TITLE}}", pr_title)
+        .replace("{{PR_DESCRIPTION}}", pr_description)
+        .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
+        .replace("{{DRAFT_REVIEW_JSON}}", draft_review_json)
+    )
+
+
 def run(
     vcs_type=None,
     pr_id=None,
     team_name=None,
-    primary_model=None,
+    draft_model=None,
+    judge_model=None,
     stream_response=None,
     vcs_base_url=None,
     vcs_project_key=None,
@@ -750,7 +777,8 @@ def run(
 ):
     runtime_overrides = _build_runtime_overrides(
         team_name=team_name,
-        primary_model=primary_model,
+        draft_model=draft_model,
+        judge_model=judge_model,
         stream_response=stream_response,
         vcs_base_url=vcs_base_url,
         vcs_project_key=vcs_project_key,
@@ -767,7 +795,8 @@ def run(
     try:
         runtime_settings = _resolve_runtime_settings(runtime_overrides)
         run_team_name = runtime_settings["team_name"]
-        run_primary_model = runtime_settings["primary_model"]
+        run_draft_model = runtime_settings["draft_model"]
+        run_judge_model = runtime_settings["judge_model"]
         run_stream_response = runtime_settings["stream_response"]
         logger.info("Review run started.")
         vcs_client = get_vcs_client(
@@ -805,9 +834,9 @@ def run(
         # 3. Request Review from GPT-5.4 mini
         prompts_dir = Path(__file__).resolve().parent / "prompts"
         with open(prompts_dir / "review_system_prompt.md", "r", encoding="utf-8") as f:
-            sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
+            draft_sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
         with open(prompts_dir / "review_user_prompt.md", "r", encoding="utf-8") as f:
-            user_p = (
+            draft_user_p = (
                 f.read()
                 .replace("{{DIFF_CONTENT}}", safe_diff)
                 .replace("{{PR_TITLE}}", pr_title)
@@ -816,8 +845,8 @@ def run(
             )
 
         logger.info(
-            "Requesting review model response. model=%s pr_id=%s",
-            run_primary_model,
+            "Requesting draft review model response. model=%s pr_id=%s",
+            run_draft_model,
             pr_id,
         )
 
@@ -835,10 +864,10 @@ def run(
             )
             store_response = previous_response_id is None
 
-        response = get_review_model_completion(
-            run_primary_model,
-            sys_p,
-            user_p,
+        draft_response = get_review_model_completion(
+            run_draft_model,
+            draft_sys_p,
+            draft_user_p,
             pr_id=pr_id,
             vcs_config=vcs_config,
             previous_response_id=previous_response_id,
@@ -848,13 +877,13 @@ def run(
         )
 
         if MODEL_ENDPOINT == "responses":
-            latest_response_id = _extract_previous_response_id(response)
+            latest_response_id = _extract_previous_response_id(draft_response)
             if latest_response_id:
                 response_state_store.set_previous_response_id(
                     state_key,
                     latest_response_id,
                 )
-            elif run_stream_response and not isinstance(response, dict):
+            elif run_stream_response and not isinstance(draft_response, dict):
                 logger.info(
                     "Skipping response-id persistence for streamed responses API payload. state_key=%s",
                     state_key,
@@ -866,9 +895,46 @@ def run(
                 )
 
         try:
-            review_data = parse_review_payload(response)
+            draft_review_data = parse_review_payload(draft_response)
         except ValueError:
-            logger.exception("Unable to parse review payload")
+            logger.exception("Unable to parse draft review payload")
+            return
+
+        with open(
+            prompts_dir / "judge_review_system_prompt.md", "r", encoding="utf-8"
+        ) as f:
+            judge_sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
+        with open(prompts_dir / "judge_review_user_prompt.md", "r", encoding="utf-8") as f:
+            judge_user_p = _build_judge_prompt_user_content(
+                prompt_template=f.read(),
+                pr_title=pr_title,
+                pr_description=pr_description,
+                safe_diff=safe_diff,
+                existing_feedback=existing_feedback,
+                draft_review_data=draft_review_data,
+            )
+
+        logger.info(
+            "Requesting judge review model response. model=%s pr_id=%s",
+            run_judge_model,
+            pr_id,
+        )
+        judge_response = get_review_model_completion(
+            run_judge_model,
+            judge_sys_p,
+            judge_user_p,
+            pr_id=pr_id,
+            vcs_config=vcs_config,
+            previous_response_id=None,
+            store_response=False,
+            model_endpoint=MODEL_ENDPOINT,
+            stream_response=run_stream_response,
+        )
+
+        try:
+            review_data = parse_review_payload(judge_response)
+        except ValueError:
+            logger.exception("Unable to parse judge review payload")
             return
 
         verdict = review_data.get("verdict", "CHANGES_SUGGESTED")
@@ -1023,11 +1089,19 @@ if __name__ == "__main__":
         help="Identifier for your team to the LLM model",
     )
     parser.add_argument(
-        "--primary-model",
+        "--draft-model",
         required=False,
         help=(
-            "Primary model used across review/distill/refine flows "
-            "(overrides model.primary_model in reflex_reviewer.toml)"
+            "Draft model used to generate the initial review payload "
+            "(overrides model.draft_model in reflex_reviewer.toml)"
+        ),
+    )
+    parser.add_argument(
+        "--judge-model",
+        required=False,
+        help=(
+            "Judge model used to filter/rewrite draft review output "
+            "(overrides model.judge_model in reflex_reviewer.toml)"
         ),
     )
     parser.add_argument(
@@ -1052,7 +1126,8 @@ if __name__ == "__main__":
         vcs_type=args.vcs_type,
         pr_id=args.pr_id,
         team_name=args.team_name,
-        primary_model=args.primary_model,
+        draft_model=args.draft_model,
+        judge_model=args.judge_model,
         stream_response=args.stream_response,
         vcs_base_url=args.vcs_base_url,
         vcs_project_key=args.vcs_project_key,
