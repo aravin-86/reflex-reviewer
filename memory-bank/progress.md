@@ -47,6 +47,30 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated judge-stage prompts to implement explicit factual verification / hallucination filtering in review flow:
+  - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - draft review is treated as untrusted until validated,
+    - keep only evidence-backed comments,
+    - reject unsupported/speculative/inferred/hallucinated findings,
+    - prefer precision over recall when uncertain.
+  - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+    - added explicit validation-first instructions,
+    - added evidence policy to avoid hidden-context assumptions and drop unsupported findings.
+- Updated `README.md` model-role documentation to match implemented judge behavior:
+  - `JUDGE_MODEL` now documented as evidence-backed verifier + final curation gate.
+- Updated `memory-bank/activeContext.md` to capture this prompt-behavior change.
+
+- Updated `README.md` to explicitly document two-stage review model responsibilities:
+  - `DRAFT_MODEL` as the broad/high-recall draft issue finder that proposes initial structured findings.
+  - `JUDGE_MODEL` as the precision/quality gate that filters, rewrites, and finalizes review output before posting.
+- Clarified model-role wording in multiple README sections:
+  - end-to-end review flow description,
+  - runtime/model configuration notes,
+  - required environment variable descriptions,
+  - reuse-from-another-repository environment guidance.
+- Updated `memory-bank/activeContext.md`:
+  - captured the README clarification for `DRAFT_MODEL` vs `JUDGE_MODEL` responsibilities.
+
 - Updated dependency manifest:
   - removed explicit `certifi>=2026.0.0` from `requirements.txt`.
   - rationale: project no longer carries a direct certifi dependency pin and relies on default certificate handling from Python/runtime stack.

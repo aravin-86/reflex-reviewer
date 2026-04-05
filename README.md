@@ -90,8 +90,18 @@ flowchart TB
    - Fetches paginated PR activities/comments to reduce repetitive suggestions
    - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
    - Runs two-stage review inference:
-     - `DRAFT_MODEL` produces the draft structured review payload,
-     - `JUDGE_MODEL` filters/re-writes draft output into final payload.
+     - `DRAFT_MODEL` (broad issue finder / high-recall pass):
+       - analyzes diff + PR context and proposes initial findings,
+       - returns a draft structured payload (`verdict`, `summary`, `checklist`, `comments`),
+       - may include low-quality or duplicate findings that still need curation.
+     - `JUDGE_MODEL` (quality gate / precision pass):
+       - reviews the draft payload against the same PR context,
+       - keeps comments only when supported by provided evidence (diff/PR context/existing feedback),
+       - removes unsupported or hallucinated findings when evidence is insufficient,
+       - filters out vague/duplicate/non-actionable/speculative comments,
+       - rewrites retained comments to be concise and actionable,
+       - rewrites summary/checklist to match retained comments,
+       - preserves valid `anchor_id` usage and allowed severity taxonomy in final output.
    - Parses structured output (`verdict`, `summary`, `checklist`, `comments`)
    - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`
    - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
@@ -189,8 +199,8 @@ Where `sanitized_team_name` is generated from `--team-name` by:
 - replacing non-alphanumeric separators with `_` (for example, `TEAM-DEV` → `team_dev`).
 
 Model/runtime values can be set in `reflex_reviewer.toml` under `[model]`:
-- `draft_model`
-- `judge_model`
+- `draft_model` (review flow: generates initial draft review payload)
+- `judge_model` (review flow: verifies evidence, removes unsupported/hallucinated findings, then curates final payload)
 - `stream_response`
 - `model_endpoint` (`chat_completions` default, or `responses` if your org/backend supports stateful `previous_response_id` flows)
 - `reasoning_effort`
@@ -266,8 +276,8 @@ PR id resolution (`review-step.sh` and `distill-step.sh`) follows this order:
 Required environment variables:
 
 - `TEAM_NAME`
-- `DRAFT_MODEL`
-- `JUDGE_MODEL` (required by `review-step.sh`)
+- `DRAFT_MODEL` (required by all flows; in review it generates the draft payload)
+- `JUDGE_MODEL` (required by `review-step.sh`; verifies evidence and finalizes draft into review payload)
 - `VCS_BASE_URL`
 - `VCS_PROJECT_KEY`
 - `VCS_REPO_SLUG`
@@ -529,8 +539,8 @@ cp reflex-reviewer/.env.example .env
 Then update `.env` with your runtime values:
 
 - VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
-- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `DRAFT_MODEL`.
-- Judge model (review flow): `JUDGE_MODEL`.
+- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
+- Judge model (review flow): `JUDGE_MODEL` (evidence-backed verification + final curation/rewrite before posting).
 - Auth (choose one):
   - Set `LITELLM_API_KEY`, **or**
   - Leave `LITELLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
@@ -565,13 +575,20 @@ Post-merge and monthly/on-demand jobs:
 
 ## 11) Future improvements
 
+- Add **repository-aware review context** using deterministic code intelligence:
+  - Build a **Repository Map** using Tree-sitter to extract compact file/module structure for changed files.
+  - Add deterministic **import-graph retrieval** to resolve repo-local files imported by changed files.
+  - Inject bounded repository structure and related-file context into both draft and judge review prompts.
+  - Keep retrieval deterministic, lightweight, and token-bounded rather than embedding/vector based.
+  - Start with Python support first, then expand to other languages over time.
 - Add **GitHub** VCS integration as the next supported provider.
-- Add stronger sample deduplication and lineage tracking for DPO data.
-- Track precision/acceptance metrics over time to quantify improvements.
-- Add confidence thresholds before posting high-severity inline comments.
+- Improve **DPO data quality and observability**:
+  - Strengthen sample deduplication and lineage tracking.
+  - Track precision/acceptance metrics over time.
+  - Add confidence thresholds before posting high-severity inline comments.
 - Support model routing by repository/language for better specialization.
 - Add additional VCS client implementations via the VCS factory.
-- Add vector-DB-backed preference memory from distilled DPO pairs to improve review quality on the fly:
+- Add **retrieval-backed preference memory** from distilled DPO pairs to improve review quality on the fly:
   - During distill, index accepted/rejected preference exemplars with compact metadata.
   - During review, retrieve top relevant exemplars and inject concise preference guidance into the prompt.
   - Optionally rerank/filter generated inline comments against retrieved rejected patterns before posting.

@@ -60,8 +60,15 @@
 - Review flow now runs a strict two-stage inference path:
   - draft stage (`review_system_prompt.md` + `review_user_prompt.md`) using `DRAFT_MODEL`,
   - judge stage (`judge_review_system_prompt.md` + `judge_review_user_prompt.md`) using `JUDGE_MODEL`.
+- Judge prompts now enforce evidence-backed verification:
+  - treat draft findings as untrusted until validated,
+  - keep only comments supported by provided diff/PR context/existing feedback,
+  - drop speculative/unsupported/hallucinated findings when evidence is insufficient.
 - Judge stage output is now the only payload posted to VCS; existing severity normalization, test-file advisory coercion, and dedupe safeguards remain in final posting path.
 - README architecture diagram now explicitly visualizes the review flow as `Draft Review (DRAFT_MODEL) -> LLM Judge (JUDGE_MODEL) -> VCS posting` to match runtime behavior.
+- README now explicitly documents stage responsibilities in review flow:
+  - `DRAFT_MODEL` as broad/high-recall draft issue finder,
+  - `JUDGE_MODEL` as precision/quality gate that filters and rewrites final payload before posting.
 - Distill/refine flows and pipeline wrappers now consume `--draft-model` / `DRAFT_MODEL` naming for consistency.
 - Build Pipeline review preflight now requires `JUDGE_MODEL` in addition to `DRAFT_MODEL`.
 - Removed obsolete provider-specific pipeline example assets and cleaned corresponding repository/doc references.
