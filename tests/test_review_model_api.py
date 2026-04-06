@@ -58,31 +58,61 @@ class ReviewModelApiTests(unittest.TestCase):
         body = vcs_client.post_comment.call_args.args[1]
         self.assertIn("[ADVISORY]", body)
 
-    def test_extract_existing_comment_state_supports_alternate_anchor_shape(self):
+    def test_is_root_comment_identifies_root_and_reply_comments(self):
+        self.assertTrue(review_module._is_root_comment({"id": "1", "text": "root"}))
+        self.assertTrue(review_module._is_root_comment({"id": "1", "parent": {"id": ""}}))
+        self.assertFalse(
+            review_module._is_root_comment({"id": "2", "parent": {"id": "1"}})
+        )
+
+    def test_build_existing_feedback_context_uses_only_root_human_and_bot_comments(self):
         activities = [
             {
                 "action": "COMMENTED",
                 "comment": {
-                    "id": 501,
-                    "text": "[CRITICAL] Add better edge assertions\r\n\r\n### #TEAM-ONE",
+                    "id": 10,
+                    "text": "Human root comment",
+                    "author": {"displayName": "Alice"},
+                },
+            },
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 11,
+                    "text": "[CRITICAL] Bot root issue\n\n### #TEAM-ONE",
                     "anchor": {
                         "srcPath": {"toString": "a/src/service.py"},
                         "srcLine": "42",
                     },
                 },
-            }
+            },
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 12,
+                    "parent": {"id": 10},
+                    "text": "Human reply should not be included",
+                    "author": {"displayName": "Bob"},
+                },
+            },
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 13,
+                    "text": "### #TEAM-ONE\n\n<!-- reflex-reviewer-summary -->\n\n**Verdict:** `APPROVED`\n\n**Summary:** ok\n\n**Checklist**\n- None",
+                },
+            },
         ]
 
-        comment_state = review_module._extract_existing_comment_state(activities, "TEAM-ONE")
-        expected_key = review_module._inline_comment_key(
-            "a/src/service.py",
-            42,
-            "CRITICAL",
-            "Add better edge assertions",
-        )
+        context = review_module.build_existing_feedback_context(activities, "TEAM-ONE")
 
-        self.assertIn(expected_key, comment_state["existing_inline_comment_keys"])
-        self.assertIn(expected_key, comment_state["unresolved_inline_comment_keys"])
+        self.assertIn("Human (Alice): Human root comment", context)
+        self.assertIn(
+            "Bot (severity=CRITICAL) | file=a/src/service.py | line=42: Bot root issue",
+            context,
+        )
+        self.assertNotIn("reply should not be included", context)
+        self.assertNotIn("**Verdict:**", context)
 
     def test_is_bot_comment_text_supports_hashtag_and_legacy_markers(self):
         self.assertTrue(
@@ -230,7 +260,7 @@ class ReviewModelApiTests(unittest.TestCase):
     @patch("reflex_reviewer.review.get_review_model_completion")
     @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
     @patch("reflex_reviewer.review.get_vcs_client")
-    def test_run_skips_reposting_when_matching_existing_inline_comment_present(
+    def test_run_posts_inline_and_summary_without_code_side_existing_comment_dedupe(
         self,
         mock_get_vcs_client,
         mock_convert_diff,
@@ -315,14 +345,16 @@ class ReviewModelApiTests(unittest.TestCase):
                 judge_model="oca/gpt-4.1",
             )
 
-        vcs_client.post_comment.assert_called_once()
-        self.assertNotIn("anchor", vcs_client.post_comment.call_args.kwargs)
-        summary_body = vcs_client.post_comment.call_args.args[1]
+        self.assertEqual(vcs_client.post_comment.call_count, 2)
+        inline_call = vcs_client.post_comment.call_args_list[0]
+        summary_call = vcs_client.post_comment.call_args_list[1]
+        self.assertIn("anchor", inline_call.kwargs)
+        self.assertNotIn("anchor", summary_call.kwargs)
+        summary_body = summary_call.args[1]
         self.assertIn("**Verdict:**", summary_body)
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")
-    @patch("reflex_reviewer.review._extract_existing_comment_state")
     @patch("reflex_reviewer.review.build_existing_feedback_context")
     @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
     @patch("reflex_reviewer.review.ReviewResponseStateStore")
@@ -333,7 +365,6 @@ class ReviewModelApiTests(unittest.TestCase):
         mock_state_store_cls,
         mock_convert_diff,
         mock_existing_feedback,
-        mock_comment_state,
         mock_get_review_model_completion,
         mock_parse_review_payload,
     ):
@@ -352,12 +383,7 @@ class ReviewModelApiTests(unittest.TestCase):
         mock_get_vcs_client.return_value = vcs_client
 
         mock_convert_diff.return_value = ("diff", {"by_anchor_id": {}})
-        mock_existing_feedback.return_value = "No prior feedback available."
-        mock_comment_state.return_value = {
-            "summary_comment_id": None,
-            "summary_comment_version": None,
-            "unresolved_inline_comment_keys": set(),
-        }
+        mock_existing_feedback.return_value = "No prior root comments available."
 
         state_store = Mock()
         state_store.get_previous_response_id.return_value = None
@@ -393,7 +419,6 @@ class ReviewModelApiTests(unittest.TestCase):
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")
-    @patch("reflex_reviewer.review._extract_existing_comment_state")
     @patch("reflex_reviewer.review.build_existing_feedback_context")
     @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
     @patch("reflex_reviewer.review.ReviewResponseStateStore")
@@ -404,7 +429,6 @@ class ReviewModelApiTests(unittest.TestCase):
         mock_state_store_cls,
         mock_convert_diff,
         mock_existing_feedback,
-        mock_comment_state,
         mock_get_review_model_completion,
         mock_parse_review_payload,
     ):
@@ -423,12 +447,7 @@ class ReviewModelApiTests(unittest.TestCase):
         mock_get_vcs_client.return_value = vcs_client
 
         mock_convert_diff.return_value = ("diff", {"by_anchor_id": {}})
-        mock_existing_feedback.return_value = "No prior feedback available."
-        mock_comment_state.return_value = {
-            "summary_comment_id": None,
-            "summary_comment_version": None,
-            "unresolved_inline_comment_keys": set(),
-        }
+        mock_existing_feedback.return_value = "No prior root comments available."
 
         state_store = Mock()
         state_store.get_previous_response_id.return_value = "resp_prev"

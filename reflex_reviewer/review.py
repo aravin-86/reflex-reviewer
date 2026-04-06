@@ -214,6 +214,24 @@ def _parse_inline_comment_payload(text):
     return severity, body
 
 
+def _is_root_comment(comment):
+    if not isinstance(comment, dict):
+        return False
+
+    parent = comment.get("parent")
+    if not parent:
+        return True
+
+    if not isinstance(parent, dict):
+        return True
+
+    parent_id = parent.get("id")
+    if parent_id is None:
+        return True
+
+    return not str(parent_id).strip()
+
+
 def _resolve_existing_inline_anchor_location(comment):
     anchor = comment.get("anchor")
     if not isinstance(anchor, dict):
@@ -242,22 +260,6 @@ def _resolve_existing_inline_anchor_location(comment):
             break
 
     return anchor_path, anchor_line
-
-
-def _normalize_comment_text(text):
-    return re.sub(r"\s+", " ", (text or "").strip()).lower()
-
-
-def _inline_comment_key(path, line, severity, text):
-    normalized_severity = _resolve_comment_severity(severity, path)
-    return "|".join(
-        [
-            _normalize_repo_path(path),
-            str(int(line)),
-            normalized_severity,
-            _normalize_comment_text(text),
-        ]
-    )
 
 
 def _safe_int(value, default=0):
@@ -566,9 +568,9 @@ def _sanitize_comment_text(text):
 
 
 def build_existing_feedback_context(activities, team_name):
-    """Build prompt context from recent comments (AI + human)."""
+    """Build prompt context from recent root comments (bot + human)."""
     comment_lines = []
-    ai_count = 0
+    bot_count = 0
     human_count = 0
 
     for activity in activities:
@@ -576,81 +578,50 @@ def build_existing_feedback_context(activities, team_name):
             continue
 
         comment = activity.get("comment", {})
-        raw_text = comment.get("text", "")
-        cleaned_text = _sanitize_comment_text(raw_text)
-        if not cleaned_text:
+        if not _is_root_comment(comment):
             continue
 
-        if _is_bot_comment_text(raw_text, team_name):
-            ai_count += 1
-            comment_type = "AI"
+        raw_text = comment.get("text", "")
+        if _is_summary_comment_text(raw_text, team_name):
+            continue
+
+        is_bot_comment = _is_bot_comment_text(raw_text, team_name)
+        cleaned_text = _sanitize_comment_text(raw_text)
+        if is_bot_comment:
+            severity, bot_body = _parse_inline_comment_payload(raw_text)
+            if bot_body:
+                cleaned_text = _sanitize_comment_text(bot_body)
+            if not cleaned_text:
+                continue
+            bot_count += 1
+            comment_type = f"Bot (severity={severity})"
         else:
+            if not cleaned_text:
+                continue
             human_count += 1
             author_name = comment.get("author", {}).get("displayName") or "Unknown"
             comment_type = f"Human ({author_name})"
 
-        comment_lines.append(f"- {comment_type}: {cleaned_text}")
+        anchor_path, anchor_line = _resolve_existing_inline_anchor_location(comment)
+        anchor_parts = []
+        if anchor_path:
+            anchor_parts.append(f"file={anchor_path}")
+        if anchor_line is not None:
+            anchor_parts.append(f"line={anchor_line}")
+        anchor_suffix = f" | {' | '.join(anchor_parts)}" if anchor_parts else ""
+        comment_lines.append(f"- {comment_type}{anchor_suffix}: {cleaned_text}")
 
     if not comment_lines:
-        return "No prior feedback available."
+        return "No prior root comments available."
 
     recent_comments = comment_lines[-MAX_EXISTING_FEEDBACK_COMMENTS:]
     logger.info(
-        "Review prompt context prepared from recent comments. included=%s ai=%s human=%s",
+        "Review prompt context prepared from recent root comments. included=%s bot=%s human=%s",
         len(recent_comments),
-        ai_count,
+        bot_count,
         human_count,
     )
     return "\n".join(recent_comments)
-
-
-def _extract_existing_comment_state(activities, team_name):
-    """Extract unresolved bot inline comment keys from existing PR comments."""
-    comment_entries = []
-    human_reply_parent_ids = set()
-    existing_inline_comment_keys = set()
-    unresolved_inline_comment_keys = set()
-
-    for activity in activities:
-        if activity.get("action") != "COMMENTED":
-            continue
-
-        comment = activity.get("comment", {})
-        if not isinstance(comment, dict):
-            continue
-
-        comment_entries.append(comment)
-        parent = comment.get("parent") or {}
-        parent_id = parent.get("id") if isinstance(parent, dict) else None
-        if parent_id is not None and not _is_bot_comment_text(
-            comment.get("text", ""), team_name
-        ):
-            human_reply_parent_ids.add(str(parent_id))
-
-    for comment in comment_entries:
-        raw_text = comment.get("text", "")
-        if not _is_bot_comment_text(raw_text, team_name):
-            continue
-
-        comment_id = comment.get("id")
-        if _is_summary_comment_text(raw_text, team_name):
-            continue
-
-        anchor_path, anchor_line = _resolve_existing_inline_anchor_location(comment)
-        if not anchor_path or anchor_line is None:
-            continue
-
-        severity, text = _parse_inline_comment_payload(raw_text)
-        inline_key = _inline_comment_key(anchor_path, anchor_line, severity, text)
-        existing_inline_comment_keys.add(inline_key)
-
-        if comment_id is None or str(comment_id) not in human_reply_parent_ids:
-            unresolved_inline_comment_keys.add(inline_key)
-
-    return {
-        "existing_inline_comment_keys": existing_inline_comment_keys,
-        "unresolved_inline_comment_keys": unresolved_inline_comment_keys,
-    }
 
 
 def _resolve_anchor_by_id(anchor_id, anchor_index):
@@ -753,6 +724,7 @@ def _build_judge_prompt_user_content(
         prompt_template.replace("{{DIFF_CONTENT}}", safe_diff)
         .replace("{{PR_TITLE}}", pr_title)
         .replace("{{PR_DESCRIPTION}}", pr_description)
+        .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
         .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
         .replace("{{DRAFT_REVIEW_JSON}}", draft_review_json)
     )
@@ -826,9 +798,6 @@ def run(
         pr_title, pr_description = fetch_pr_metadata(vcs_client, pr_id)
         activities = fetch_pr_activities(vcs_client, pr_id)
         existing_feedback = build_existing_feedback_context(activities, run_team_name)
-        existing_comment_state = _extract_existing_comment_state(
-            activities, run_team_name
-        )
 
         # 3. Request Review from GPT-5.4 mini
         prompts_dir = Path(__file__).resolve().parent / "prompts"
@@ -840,6 +809,7 @@ def run(
                 .replace("{{DIFF_CONTENT}}", safe_diff)
                 .replace("{{PR_TITLE}}", pr_title)
                 .replace("{{PR_DESCRIPTION}}", pr_description)
+                .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
                 .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
             )
 
@@ -961,15 +931,6 @@ def run(
 
         posted_inline_count = 0
         skipped_inline_count = 0
-        posted_inline_keys = set()
-        existing_inline_comment_keys = set(
-            existing_comment_state.get("existing_inline_comment_keys", set())
-        )
-        unresolved_inline_comment_keys = set(
-            existing_comment_state.get("unresolved_inline_comment_keys", set())
-        )
-        if not existing_inline_comment_keys:
-            existing_inline_comment_keys = set(unresolved_inline_comment_keys)
 
         for comment in comments:
             anchor_id = (comment.get("anchor_id") or "").strip()
@@ -997,27 +958,6 @@ def run(
 
             severity = _resolve_comment_severity(severity, resolved_anchor["path"])
 
-            inline_key = _inline_comment_key(
-                resolved_anchor["path"], resolved_anchor["line"], severity, text
-            )
-            if inline_key in existing_inline_comment_keys:
-                skipped_inline_count += 1
-                logger.info(
-                    "Skipping repost of existing comment for %s:%s",
-                    resolved_anchor["path"],
-                    resolved_anchor["line"],
-                )
-                continue
-
-            if inline_key in posted_inline_keys:
-                skipped_inline_count += 1
-                logger.info(
-                    "Skipping duplicate inline comment in current run for %s:%s",
-                    resolved_anchor["path"],
-                    resolved_anchor["line"],
-                )
-                continue
-
             try:
                 post_inline_comment(
                     vcs_client,
@@ -1028,7 +968,6 @@ def run(
                     run_team_name,
                 )
                 posted_inline_count += 1
-                posted_inline_keys.add(inline_key)
             except requests.exceptions.RequestException as e:
                 logger.warning(
                     "Failed to post inline comment for %s:%s - %s",

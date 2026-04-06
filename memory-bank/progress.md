@@ -51,6 +51,27 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Simplified review duplicate-handling flow to rely on model/judge semantics using existing root-comment context:
+  - updated `reflex_reviewer/review.py`:
+    - removed code-side rerun dedupe against existing inline comments (`_extract_existing_comment_state`, inline-key matching path).
+    - added root-comment detection helper and now builds existing feedback context from **root comments only** (human + bot), excluding replies and summary comments.
+    - root bot comments in prompt context now include parsed severity and anchor metadata (`file`, `line`) when available.
+    - kept posting path simple while preserving anchor validation, severity normalization, and test-file `ADVISORY` coercion.
+  - updated prompts:
+    - `reflex_reviewer/prompts/review_user_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - all now explicitly instruct semantic no-repeat behavior using existing **root** comments (human + bot).
+  - updated tests in `tests/test_review_model_api.py`:
+    - removed assertions tied to old code-side existing-comment dedupe state,
+    - added root-comment extraction/context coverage,
+    - updated run-path regression to assert inline + summary posting without code-side existing-comment suppression.
+  - updated docs:
+    - `README.md` review flow now documents root-comment-context guidance and simplified posting path (no code-side rerun dedupe).
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api`
+  - Result: `Ran 18 tests ... OK`.
+
 - Fixed review rerun duplicate inline comment repost behavior:
   - updated `reflex_reviewer/review.py`:
     - improved existing bot-inline comment extraction to support alternate Bitbucket anchor field shapes:

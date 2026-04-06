@@ -87,7 +87,7 @@ flowchart TB
 
 1. **Actuation / PR Review (`reflex_reviewer/review.py`)**
    - Fetches PR diff + metadata from configured VCS provider
-   - Fetches paginated PR activities/comments to reduce repetitive suggestions
+   - Fetches paginated PR activities/comments and builds root-comment context (human + bot) to reduce repetitive suggestions
    - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
    - Runs two-stage review inference:
      - `DRAFT_MODEL` (broad issue finder / high-recall pass):
@@ -96,7 +96,7 @@ flowchart TB
        - may include low-quality or duplicate findings that still need curation.
      - `JUDGE_MODEL` (quality gate / precision pass):
        - reviews the draft payload against the same PR context,
-       - keeps comments only when supported by provided evidence (diff/PR context/existing feedback),
+       - keeps comments only when supported by provided evidence (diff/PR context/existing root comments),
        - removes unsupported or hallucinated findings when evidence is insufficient,
        - filters out vague/duplicate/non-actionable/speculative comments,
        - rewrites retained comments to be concise and actionable,
@@ -107,7 +107,8 @@ flowchart TB
    - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
    - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context for the draft stage response when a response id is available
    - Posts a new summary comment for every review run (append-only; existing summary comments are preserved)
-   - Avoids reposting duplicate inline comments across reruns by matching model output against existing bot inline comments already present on the PR (including alternate Bitbucket anchor field shapes)
+   - Relies on model/judge instructions plus existing root comments (human + bot; replies excluded) to avoid semantically duplicate findings
+   - Keeps posting path simple: no code-side rerun dedupe against existing inline comments
    - Posts optional inline comments back to VCS
 
 2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**

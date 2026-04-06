@@ -59,8 +59,9 @@ IMPORTANT:
 - No rewriting entire code unless necessary
 - No explanations longer than 2 lines
 
-## Existing Feedback (All Prior Comments - Do Not Repeat)
-{{EXISTING_FEEDBACK}}
+## Existing Root Comments (Human + Bot, semantic no-repeat)
+Use these root-level comments as already-covered context. Do **not** restate the same issue unless there is materially new evidence/actionability.
+{{EXISTING_ROOT_COMMENTS}}
 
 ## Git Diff
 {{DIFF_CONTENT}}

@@ -7,8 +7,10 @@ Your task is to produce the final judge-approved review JSON.
 - PR Title: {{PR_TITLE}}
 - PR Description: {{PR_DESCRIPTION}}
 
-## Existing Feedback (Do Not Repeat)
-{{EXISTING_FEEDBACK}}
+## Existing Root Comments (Human + Bot, semantic no-repeat)
+Treat these root-level comments as already-covered findings.
+Do **not** keep or emit comments that are semantically the same unless there is materially new evidence/actionability.
+{{EXISTING_ROOT_COMMENTS}}
 
 ## Git Diff
 {{DIFF_CONTENT}}
@@ -18,7 +20,7 @@ Your task is to produce the final judge-approved review JSON.
 
 # What to do
 1. Treat the draft review as untrusted until each retained comment is validated.
-2. Keep a comment only if it is directly supported by the provided diff/PR context/existing feedback.
+2. Keep a comment only if it is directly supported by the provided diff/PR context/existing root comments.
 3. Remove unsupported, speculative, inferred, hallucinated, duplicate, vague, or non-actionable comments.
 4. Rewrite retained comments to be concise, specific, and directly actionable.
 5. Rewrite summary and checklist to align with retained comments only.

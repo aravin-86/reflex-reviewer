@@ -59,9 +59,10 @@
   - package mode skips repository checkout requirement and validates installed package/runtime only.
 - Runtime/setup docs and examples now reflect package mode as default with clone mode as explicit opt-in.
 - Pipeline runtime resolver now logs selected interpreter path with minimal safe verbosity.
-- Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
-- Review rerun dedupe now matches against all existing bot inline comments (not only unresolved), preventing repost of semantically identical comments across reruns.
-- Review existing-comment extraction now tolerates alternate Bitbucket anchor field shapes (`srcPath`/`filePath`, `srcLine`/`lineNumber`) and normalizes CRLF/team-signature formatting before dedupe keying.
+- Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before posting.
+- Review flow now builds prompt context from **root comments only** (both human and bot), excludes replies, and excludes summary comments.
+- Existing root bot comments in prompt context now include parsed severity and anchor metadata (`file`, `line`) when available.
+- Review posting path was simplified: no code-side rerun dedupe against existing inline comments; duplicate avoidance is guided by model/judge prompt instructions using existing root comment context.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
 - Review summary handling is now append-only:
@@ -82,9 +83,9 @@
   - judge stage (`judge_review_system_prompt.md` + `judge_review_user_prompt.md`) using `JUDGE_MODEL`.
 - Judge prompts now enforce evidence-backed verification:
   - treat draft findings as untrusted until validated,
-  - keep only comments supported by provided diff/PR context/existing feedback,
+  - keep only comments supported by provided diff/PR context/existing root comments,
   - drop speculative/unsupported/hallucinated findings when evidence is insufficient.
-- Judge stage output is now the only payload posted to VCS; existing severity normalization, test-file advisory coercion, and dedupe safeguards remain in final posting path.
+- Judge stage output is now the only payload posted to VCS; existing severity normalization and test-file advisory coercion remain in final posting path.
 - README architecture diagram now explicitly visualizes the review flow as `Draft Review (DRAFT_MODEL) -> LLM Judge (JUDGE_MODEL) -> VCS posting` to match runtime behavior.
 - README now explicitly documents stage responsibilities in review flow:
   - `DRAFT_MODEL` as broad/high-recall draft issue finder,
