@@ -51,6 +51,24 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Fixed review rerun duplicate inline comment repost behavior:
+  - updated `reflex_reviewer/review.py`:
+    - improved existing bot-inline comment extraction to support alternate Bitbucket anchor field shapes:
+      - path fallback keys: `path`, `srcPath`, `filePath`
+      - line fallback keys: `line`, `srcLine`, `lineNumber`
+    - strengthened inline payload parsing to strip trailing bot team signature (supports CRLF/LF) before dedupe keying.
+    - dedupe now checks against all existing bot inline comment keys (with backward-compatible fallback to unresolved-only keyset when needed), preventing repost of semantically identical comments on reruns.
+    - updated rerun skip log message to generic existing-comment wording.
+  - updated tests in `tests/test_review_model_api.py`:
+    - added coverage for signature-stripping inline payload parsing,
+    - added coverage for alternate-anchor-shape existing-comment key extraction,
+    - added end-to-end run-path regression verifying rerun skips reposting a matching existing inline comment while still posting summary comment.
+  - updated docs:
+    - `README.md` review flow now explicitly documents rerun duplicate-inline suppression against existing PR bot comments.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api`
+  - Result: `Ran 17 tests ... OK`.
+
 - Updated review/distill summary-comment behavior to preserve history and keep distillation clean:
   - updated `reflex_reviewer/review.py`:
     - review summary comments are now append-only (no delete/replace of older summaries),

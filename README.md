@@ -107,6 +107,7 @@ flowchart TB
    - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
    - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context for the draft stage response when a response id is available
    - Posts a new summary comment for every review run (append-only; existing summary comments are preserved)
+   - Avoids reposting duplicate inline comments across reruns by matching model output against existing bot inline comments already present on the PR (including alternate Bitbucket anchor field shapes)
    - Posts optional inline comments back to VCS
 
 2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**

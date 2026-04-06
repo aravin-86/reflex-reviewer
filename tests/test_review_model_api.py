@@ -28,6 +28,14 @@ class ReviewModelApiTests(unittest.TestCase):
         self.assertEqual(severity, "ADVISORY")
         self.assertEqual(body, "fix this")
 
+    def test_parse_inline_comment_payload_strips_trailing_team_signature(self):
+        severity, body = review_module._parse_inline_comment_payload(
+            "[CRITICAL] Add better edge assertions\r\n\r\n### #TEAM-PRODUCT"
+        )
+
+        self.assertEqual(severity, "CRITICAL")
+        self.assertEqual(body, "Add better edge assertions")
+
     def test_post_inline_comment_coerces_test_comments_to_advisory(self):
         vcs_client = Mock()
         anchor = {
@@ -49,6 +57,32 @@ class ReviewModelApiTests(unittest.TestCase):
         vcs_client.post_comment.assert_called_once()
         body = vcs_client.post_comment.call_args.args[1]
         self.assertIn("[ADVISORY]", body)
+
+    def test_extract_existing_comment_state_supports_alternate_anchor_shape(self):
+        activities = [
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 501,
+                    "text": "[CRITICAL] Add better edge assertions\r\n\r\n### #TEAM-ONE",
+                    "anchor": {
+                        "srcPath": {"toString": "a/src/service.py"},
+                        "srcLine": "42",
+                    },
+                },
+            }
+        ]
+
+        comment_state = review_module._extract_existing_comment_state(activities, "TEAM-ONE")
+        expected_key = review_module._inline_comment_key(
+            "a/src/service.py",
+            42,
+            "CRITICAL",
+            "Add better edge assertions",
+        )
+
+        self.assertIn(expected_key, comment_state["existing_inline_comment_keys"])
+        self.assertIn(expected_key, comment_state["unresolved_inline_comment_keys"])
 
     def test_is_bot_comment_text_supports_hashtag_and_legacy_markers(self):
         self.assertTrue(
@@ -191,6 +225,100 @@ class ReviewModelApiTests(unittest.TestCase):
             )
 
         mock_get_model_completion.assert_called_once()
+
+    @patch("reflex_reviewer.review.parse_review_payload")
+    @patch("reflex_reviewer.review.get_review_model_completion")
+    @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
+    @patch("reflex_reviewer.review.get_vcs_client")
+    def test_run_skips_reposting_when_matching_existing_inline_comment_present(
+        self,
+        mock_get_vcs_client,
+        mock_convert_diff,
+        mock_get_review_model_completion,
+        mock_parse_review_payload,
+    ):
+        vcs_client = Mock()
+        vcs_client.get_vcs_config.return_value = {
+            "project": "PRODUCT",
+            "repo_slug": "control-plane",
+            "pr_id": 123,
+        }
+        vcs_client.fetch_pr_diff.return_value = {
+            "diffs": [{"destination": {"toString": "src/service.py"}, "hunks": []}]
+        }
+        vcs_client.fetch_pr_metadata.return_value = ("title", "description")
+        vcs_client.fetch_pr_activities.return_value = [
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 700,
+                    "text": "[CRITICAL] Add better edge assertions\r\n\r\n### #TEAM-ONE",
+                    "anchor": {
+                        "srcPath": {"toString": "a/src/service.py"},
+                        "srcLine": "10",
+                    },
+                },
+            }
+        ]
+        vcs_client.post_comment.return_value = {"id": 1}
+        mock_get_vcs_client.return_value = vcs_client
+
+        mock_convert_diff.return_value = (
+            "diff",
+            {
+                "by_anchor_id": {
+                    "F1-L10": {
+                        "anchor": {
+                            "path": "src/service.py",
+                            "line": 10,
+                            "lineType": "ADDED",
+                            "fileType": "TO",
+                        },
+                        "path": "src/service.py",
+                        "line": 10,
+                    }
+                }
+            },
+        )
+
+        mock_get_review_model_completion.side_effect = [
+            {"id": "draft_1"},
+            {"id": "judge_1"},
+        ]
+        mock_parse_review_payload.side_effect = [
+            {
+                "verdict": "CHANGES_SUGGESTED",
+                "summary": "draft",
+                "checklist": [],
+                "comments": [],
+            },
+            {
+                "verdict": "CHANGES_SUGGESTED",
+                "summary": "final summary",
+                "checklist": [],
+                "comments": [
+                    {
+                        "anchor_id": "F1-L10",
+                        "severity": "CRITICAL",
+                        "text": "Add better edge assertions",
+                    }
+                ],
+            },
+        ]
+
+        with patch.object(review_module, "MODEL_ENDPOINT", "chat_completions"):
+            review_module.run(
+                vcs_type="bitbucket",
+                pr_id=123,
+                team_name="TEAM-ONE",
+                draft_model="oca/gpt-4.1",
+                judge_model="oca/gpt-4.1",
+            )
+
+        vcs_client.post_comment.assert_called_once()
+        self.assertNotIn("anchor", vcs_client.post_comment.call_args.kwargs)
+        summary_body = vcs_client.post_comment.call_args.args[1]
+        self.assertIn("**Verdict:**", summary_body)
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")

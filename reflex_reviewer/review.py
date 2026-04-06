@@ -50,6 +50,10 @@ SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
+BOT_SIGNATURE_PATTERN = re.compile(
+    r"(?:\r?\n){2}\s*###\s*#?[A-Za-z0-9._-]+\s*$",
+    re.DOTALL,
+)
 
 
 def _parse_bool(value):
@@ -196,7 +200,8 @@ def _is_summary_comment_text(text, team_name):
 
 
 def _parse_inline_comment_payload(text):
-    inline_body = (text or "").split("\n\n###", 1)[0].strip()
+    inline_body = (text or "").strip()
+    inline_body = BOT_SIGNATURE_PATTERN.sub("", inline_body).strip()
     if not inline_body:
         return DEFAULT_COMMENT_SEVERITY, ""
 
@@ -207,6 +212,36 @@ def _parse_inline_comment_payload(text):
     severity = _normalize_comment_severity(match.group("severity"))
     body = (match.group("body") or "").strip()
     return severity, body
+
+
+def _resolve_existing_inline_anchor_location(comment):
+    anchor = comment.get("anchor")
+    if not isinstance(anchor, dict):
+        return None, None
+
+    anchor_path = None
+    for path_key in ("path", "srcPath", "filePath"):
+        raw_path = anchor.get(path_key)
+        if isinstance(raw_path, dict):
+            raw_path = raw_path.get("toString")
+        if isinstance(raw_path, str) and raw_path.strip():
+            anchor_path = raw_path.strip()
+            break
+
+    anchor_line = None
+    for line_key in ("line", "srcLine", "lineNumber"):
+        raw_line = anchor.get(line_key)
+        if raw_line is None:
+            continue
+        try:
+            parsed_line = int(str(raw_line).strip())
+        except (TypeError, ValueError):
+            continue
+        if parsed_line > 0:
+            anchor_line = parsed_line
+            break
+
+    return anchor_path, anchor_line
 
 
 def _normalize_comment_text(text):
@@ -573,6 +608,7 @@ def _extract_existing_comment_state(activities, team_name):
     """Extract unresolved bot inline comment keys from existing PR comments."""
     comment_entries = []
     human_reply_parent_ids = set()
+    existing_inline_comment_keys = set()
     unresolved_inline_comment_keys = set()
 
     for activity in activities:
@@ -600,27 +636,19 @@ def _extract_existing_comment_state(activities, team_name):
         if _is_summary_comment_text(raw_text, team_name):
             continue
 
-        anchor = comment.get("anchor")
-        if not isinstance(anchor, dict):
-            continue
-
-        anchor_path = anchor.get("path")
-        anchor_line = anchor.get("line")
+        anchor_path, anchor_line = _resolve_existing_inline_anchor_location(comment)
         if not anchor_path or anchor_line is None:
-            continue
-
-        try:
-            anchor_line = int(anchor_line)
-        except (TypeError, ValueError):
             continue
 
         severity, text = _parse_inline_comment_payload(raw_text)
         inline_key = _inline_comment_key(anchor_path, anchor_line, severity, text)
+        existing_inline_comment_keys.add(inline_key)
 
         if comment_id is None or str(comment_id) not in human_reply_parent_ids:
             unresolved_inline_comment_keys.add(inline_key)
 
     return {
+        "existing_inline_comment_keys": existing_inline_comment_keys,
         "unresolved_inline_comment_keys": unresolved_inline_comment_keys,
     }
 
@@ -934,9 +962,14 @@ def run(
         posted_inline_count = 0
         skipped_inline_count = 0
         posted_inline_keys = set()
+        existing_inline_comment_keys = set(
+            existing_comment_state.get("existing_inline_comment_keys", set())
+        )
         unresolved_inline_comment_keys = set(
             existing_comment_state.get("unresolved_inline_comment_keys", set())
         )
+        if not existing_inline_comment_keys:
+            existing_inline_comment_keys = set(unresolved_inline_comment_keys)
 
         for comment in comments:
             anchor_id = (comment.get("anchor_id") or "").strip()
@@ -967,10 +1000,10 @@ def run(
             inline_key = _inline_comment_key(
                 resolved_anchor["path"], resolved_anchor["line"], severity, text
             )
-            if inline_key in unresolved_inline_comment_keys:
+            if inline_key in existing_inline_comment_keys:
                 skipped_inline_count += 1
                 logger.info(
-                    "Skipping repost of unresolved existing comment for %s:%s",
+                    "Skipping repost of existing comment for %s:%s",
                     resolved_anchor["path"],
                     resolved_anchor["line"],
                 )

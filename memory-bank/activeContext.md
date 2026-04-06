@@ -60,6 +60,8 @@
 - Runtime/setup docs and examples now reflect package mode as default with clone mode as explicit opt-in.
 - Pipeline runtime resolver now logs selected interpreter path with minimal safe verbosity.
 - Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
+- Review rerun dedupe now matches against all existing bot inline comments (not only unresolved), preventing repost of semantically identical comments across reruns.
+- Review existing-comment extraction now tolerates alternate Bitbucket anchor field shapes (`srcPath`/`filePath`, `srcLine`/`lineNumber`) and normalizes CRLF/team-signature formatting before dedupe keying.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
 - Review summary handling is now append-only:
