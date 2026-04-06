@@ -22,7 +22,7 @@ fine_tuning_jobs_path = "/fine_tuning/jobs"
 [model]
 draft_model = "${DRAFT_MODEL}"
 judge_model = "${JUDGE_MODEL}"
-stream_response = "${STREAM_RESPONSE|-false}"
+stream_response = "${STREAM_RESPONSE|-true}"
 # Supported endpoints: chat_completions (stateless default) or responses
 # (stateful; use only if your org/backend supports previous_response_id flows).
 model_endpoint = "${MODEL_ENDPOINT|-chat_completions}"
