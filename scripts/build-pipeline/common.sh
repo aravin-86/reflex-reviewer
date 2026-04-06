@@ -97,6 +97,23 @@ rr_package_install_target() {
   echo "${target}"
 }
 
+rr_package_index_url() {
+  local index_url="${RR_PACKAGE_INDEX_URL:-https://test.pypi.org/simple/}"
+  index_url="$(printf '%s' "${index_url}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "${index_url}" ]]; then
+    index_url="https://test.pypi.org/simple/"
+  fi
+
+  echo "${index_url}"
+}
+
+rr_package_extra_index_url() {
+  local extra_index_url="${RR_PACKAGE_EXTRA_INDEX_URL-https://pypi.org/simple/}"
+  extra_index_url="$(printf '%s' "${extra_index_url}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+  echo "${extra_index_url}"
+}
+
 rr_repo_root_from_script_dir() {
   local script_dir="$1"
   (cd "${script_dir}/../.." && pwd)

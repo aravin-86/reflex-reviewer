@@ -51,6 +51,30 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Added package-index configurability for Build Pipeline package-mode runtime installation (TestPyPI-first by default):
+  - updated `reflex_reviewer.toml` `[pipeline_runtime]`:
+    - added `package_index_url` (default `https://test.pypi.org/simple/`)
+    - added `package_extra_index_url` (default `https://pypi.org/simple/`)
+  - updated `reflex_reviewer/config.py`:
+    - extended `get_pipeline_runtime_config(...)` to resolve/normalize:
+      - `package_index_url` (`rr_package_index_url` override key)
+      - `package_extra_index_url` (`rr_package_extra_index_url` override key)
+    - empty `package_extra_index_url` now normalizes to `None` (disables extra-index usage).
+  - updated Build Pipeline scripts:
+    - `scripts/build-pipeline/common.sh`:
+      - added `rr_package_index_url` and `rr_package_extra_index_url` helpers.
+    - `scripts/build-pipeline/setup-pipeline-runtime.sh`:
+      - package mode now passes `--index-url` and optional `--extra-index-url` to pip install.
+      - usage/help text now documents `RR_PACKAGE_INDEX_URL` and `RR_PACKAGE_EXTRA_INDEX_URL`.
+  - updated docs/examples:
+    - `README.md` Build Pipeline section now documents package index env vars, defaults, and setup examples.
+    - `.env.example` now includes `RR_PACKAGE_INDEX_URL` and `RR_PACKAGE_EXTRA_INDEX_URL`.
+  - updated tests:
+    - `tests/test_config_runtime_overrides.py` now covers package index URL defaults, env/CLI precedence, and empty extra-index normalization.
+- Verification notes:
+  - `bash -n /Users/aranaras/repos/reflex-reviewer/scripts/build-pipeline/common.sh /Users/aranaras/repos/reflex-reviewer/scripts/build-pipeline/setup-pipeline-runtime.sh` passes.
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides` passes (`Ran 22 tests ... OK`).
+
 - Added mode-aware Build Pipeline runtime with package-install default:
   - updated `reflex_reviewer/config.py`:
     - added `get_pipeline_runtime_config(...)` and install-mode normalization (`clone|package`, default `package`),

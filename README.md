@@ -299,6 +299,8 @@ Optional:
 - `LLM_API_PROXY_URL` (optional proxy for outbound LLM API calls)
 - `RR_PIPELINE_INSTALL_MODE` (`package` default, or `clone`)
 - `RR_PACKAGE_INSTALL_TARGET` (pip install target used in package mode; default `reflex-reviewer`)
+- `RR_PACKAGE_INDEX_URL` (package mode primary pip index URL; default `https://test.pypi.org/simple/`)
+- `RR_PACKAGE_EXTRA_INDEX_URL` (package mode extra pip index URL; default `https://pypi.org/simple/`; leave empty to disable)
 - `RR_REPOSITORY_DIR` (clone mode prepared checkout dir; defaults to `<cwd>/.reflex-reviewer-clone`)
 - `RR_REPOSITORY_REF` (optional branch/tag for clone mode via `git clone --branch`)
 - `PYTHON_BIN` (optional explicit interpreter override)
@@ -310,7 +312,9 @@ Optional:
 Build Pipeline setup behavior:
 
 - `setup-pipeline-runtime.sh` supports two runtime modes:
-  - `package` mode (default): creates/uses venv and installs `RR_PACKAGE_INSTALL_TARGET` with pip.
+  - `package` mode (default): creates/uses venv and installs `RR_PACKAGE_INSTALL_TARGET` with pip using:
+    - `RR_PACKAGE_INDEX_URL` (default `https://test.pypi.org/simple/`),
+    - `RR_PACKAGE_EXTRA_INDEX_URL` (default `https://pypi.org/simple/`, optional).
   - `clone` mode: performs fresh clone, then installs dependencies from cloned `requirements.txt`.
 - Step scripts (`review-step.sh`, `distill-step.sh`, `refine-step.sh`) do not clone.
 - In `clone` mode, step scripts require prepared checkout/runtime and fail fast if missing.
@@ -323,6 +327,11 @@ Runtime bootstrap for pipeline runner hosts:
 
 # Package mode with explicit pinned target
 RR_PACKAGE_INSTALL_TARGET="reflex-reviewer==0.1.3" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+
+# Package mode with explicit package indexes
+RR_PACKAGE_INDEX_URL="https://test.pypi.org/simple/" \
+RR_PACKAGE_EXTRA_INDEX_URL="https://pypi.org/simple/" \
+./scripts/build-pipeline/setup-pipeline-runtime.sh
 
 # Clone mode (requires clone URL)
 RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh

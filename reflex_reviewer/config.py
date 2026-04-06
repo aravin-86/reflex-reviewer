@@ -544,9 +544,35 @@ def get_pipeline_runtime_config(overrides=None):
         if not package_install_target:
             package_install_target = "reflex-reviewer"
 
+    package_index_url = _resolve_toml_value(
+        overrides,
+        "rr_package_index_url",
+        "pipeline_runtime",
+        "package_index_url",
+        "https://test.pypi.org/simple/",
+    )
+    if package_index_url is not None:
+        package_index_url = str(package_index_url).strip()
+        if not package_index_url:
+            package_index_url = "https://test.pypi.org/simple/"
+
+    package_extra_index_url = _resolve_toml_value(
+        overrides,
+        "rr_package_extra_index_url",
+        "pipeline_runtime",
+        "package_extra_index_url",
+        "https://pypi.org/simple/",
+    )
+    if package_extra_index_url is not None:
+        package_extra_index_url = str(package_extra_index_url).strip()
+        if not package_extra_index_url:
+            package_extra_index_url = None
+
     return {
         "install_mode": install_mode,
         "package_install_target": package_install_target,
+        "package_index_url": package_index_url,
+        "package_extra_index_url": package_extra_index_url,
         "repository_clone_url": _resolve_toml_value(
             overrides,
             "rr_repository_clone_url",

@@ -128,6 +128,12 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
 
         self.assertEqual(config.get("install_mode"), "package")
         self.assertEqual(config.get("package_install_target"), "reflex-reviewer")
+        self.assertEqual(
+            config.get("package_index_url"), "https://test.pypi.org/simple/"
+        )
+        self.assertEqual(
+            config.get("package_extra_index_url"), "https://pypi.org/simple/"
+        )
 
     def test_pipeline_runtime_env_and_cli_override_precedence(self):
         with patch.dict(
@@ -135,6 +141,8 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
             {
                 "RR_PIPELINE_INSTALL_MODE": "PACKAGE",
                 "RR_PACKAGE_INSTALL_TARGET": "env-package",
+                "RR_PACKAGE_INDEX_URL": "https://env.test.pypi.org/simple/",
+                "RR_PACKAGE_EXTRA_INDEX_URL": "https://env.pypi.org/simple/",
                 "RR_REPOSITORY_CLONE_URL": "https://example.com/repo.git",
             },
             clear=True,
@@ -144,11 +152,19 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
                 {
                     "pipeline_install_mode": "clone",
                     "rr_package_install_target": "reflex-reviewer==0.1.3",
+                    "rr_package_index_url": "https://cli.test.pypi.org/simple/",
+                    "rr_package_extra_index_url": "https://cli.pypi.org/simple/",
                 }
             )
 
         self.assertEqual(env_config.get("install_mode"), "package")
         self.assertEqual(env_config.get("package_install_target"), "env-package")
+        self.assertEqual(
+            env_config.get("package_index_url"), "https://env.test.pypi.org/simple/"
+        )
+        self.assertEqual(
+            env_config.get("package_extra_index_url"), "https://env.pypi.org/simple/"
+        )
         self.assertEqual(
             env_config.get("repository_clone_url"), "https://example.com/repo.git"
         )
@@ -156,6 +172,24 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         self.assertEqual(
             cli_config.get("package_install_target"), "reflex-reviewer==0.1.3"
         )
+        self.assertEqual(
+            cli_config.get("package_index_url"), "https://cli.test.pypi.org/simple/"
+        )
+        self.assertEqual(
+            cli_config.get("package_extra_index_url"), "https://cli.pypi.org/simple/"
+        )
+
+    def test_pipeline_runtime_extra_index_url_allows_empty_override(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "RR_PACKAGE_EXTRA_INDEX_URL": "",
+            },
+            clear=True,
+        ):
+            config = get_pipeline_runtime_config()
+
+        self.assertIsNone(config.get("package_extra_index_url"))
 
     def test_pipeline_runtime_invalid_mode_falls_back_to_package(self):
         with patch.dict(

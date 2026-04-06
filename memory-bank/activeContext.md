@@ -50,6 +50,10 @@
 - Build Pipeline runtime bootstrap now supports install-mode toggle via `RR_PIPELINE_INSTALL_MODE`:
   - `package` (default): `setup-pipeline-runtime.sh` installs `RR_PACKAGE_INSTALL_TARGET` into runtime venv without repository clone,
   - `clone`: setup performs fresh clone using `RR_REPOSITORY_CLONE_URL`, then installs from cloned `requirements.txt`.
+- Build Pipeline package-mode install source is now configurable and defaults to TestPyPI-first resolution:
+  - `RR_PACKAGE_INDEX_URL` default: `https://test.pypi.org/simple/`
+  - `RR_PACKAGE_EXTRA_INDEX_URL` default: `https://pypi.org/simple/`
+  - package-mode setup now passes these as `pip --index-url` and `--extra-index-url`.
 - Step scripts now branch by install mode:
   - clone mode requires prepared repository checkout and validates repository layout,
   - package mode skips repository checkout requirement and validates installed package/runtime only.
@@ -112,6 +116,14 @@
 - Removed legacy provider-specific client shim file from `reflex_reviewer/` and kept only `reflex_reviewer/llm_api_client.py` as the runtime client module.
 - Removed old provider-compatibility config aliases/fallbacks from `reflex_reviewer/config.py` so runtime/env/TOML resolution is now strictly `llm_api` scoped.
 - Updated sample/test endpoint strings to provider-neutral naming and revalidated with targeted tests in repo venv.
+- Pipeline runtime config now includes package index URL keys under `[pipeline_runtime]` in `reflex_reviewer.toml`:
+  - `package_index_url`
+  - `package_extra_index_url`
+- `get_pipeline_runtime_config(...)` now resolves and normalizes package index URL overrides:
+  - `rr_package_index_url`
+  - `rr_package_extra_index_url` (empty value normalizes to `None`, which disables extra index usage).
+- Build Pipeline docs and examples now document package-mode index defaults and env controls in `README.md` and `.env.example`.
+- Added unit coverage in `tests/test_config_runtime_overrides.py` for pipeline runtime package index URL defaults and env/CLI override precedence.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

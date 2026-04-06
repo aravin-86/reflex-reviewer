@@ -35,6 +35,10 @@ unsupported_reasoning_models = ["gpt-4.1"]
 install_mode = "${RR_PIPELINE_INSTALL_MODE|-package}"
 # Accepts any pip-installable target (name, pinned version, URL, wheel path, git URL)
 package_install_target = "${RR_PACKAGE_INSTALL_TARGET|-reflex-reviewer}"
+# Primary package index used by setup-pipeline-runtime.sh in package mode.
+package_index_url = "${RR_PACKAGE_INDEX_URL|-https://test.pypi.org/simple/}"
+# Extra package index used by setup-pipeline-runtime.sh for dependency fallback.
+package_extra_index_url = "${RR_PACKAGE_EXTRA_INDEX_URL|-https://pypi.org/simple/}"
 repository_clone_url = "${RR_REPOSITORY_CLONE_URL}"
 repository_dir = "${RR_REPOSITORY_DIR}"
 repository_ref = "${RR_REPOSITORY_REF}"

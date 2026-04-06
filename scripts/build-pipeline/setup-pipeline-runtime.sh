@@ -12,7 +12,7 @@ Usage: setup-pipeline-runtime.sh [options]
 Performs Build Pipeline setup by:
 1) creating/updating runtime virtualenv
 2) installing runtime using selected mode:
-   - package mode (default): pip install RR_PACKAGE_INSTALL_TARGET
+   - package mode (default): pip install RR_PACKAGE_INSTALL_TARGET using configured package indexes
    - clone mode: fresh clone + pip install -r requirements.txt from clone
 
 Options:
@@ -25,6 +25,8 @@ Options:
 Environment:
   RR_PIPELINE_INSTALL_MODE  Runtime setup mode: package (default) or clone
   RR_PACKAGE_INSTALL_TARGET Pip install target for package mode (default: reflex-reviewer)
+  RR_PACKAGE_INDEX_URL      Primary pip index for package mode (default: https://test.pypi.org/simple/)
+  RR_PACKAGE_EXTRA_INDEX_URL Optional extra pip index for package mode (default: https://pypi.org/simple/)
   RR_VENV_DIR           Optional default venv path override
   RR_REPOSITORY_CLONE_URL   Required only when RR_PIPELINE_INSTALL_MODE=clone
   RR_REPOSITORY_DIR         Optional clone directory for clone mode (default: <cwd>/.reflex-reviewer-clone)
@@ -33,6 +35,7 @@ Environment:
 Examples:
   ./scripts/build-pipeline/setup-pipeline-runtime.sh
   RR_PIPELINE_INSTALL_MODE=package RR_PACKAGE_INSTALL_TARGET='reflex-reviewer==0.1.3' ./scripts/build-pipeline/setup-pipeline-runtime.sh
+  RR_PACKAGE_INDEX_URL='https://test.pypi.org/simple/' RR_PACKAGE_EXTRA_INDEX_URL='https://pypi.org/simple/' ./scripts/build-pipeline/setup-pipeline-runtime.sh
   RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_CLONE_URL='<REPO_CLONE_URL>' ./scripts/build-pipeline/setup-pipeline-runtime.sh
   ./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
   ./scripts/build-pipeline/setup-pipeline-runtime.sh --python-bin /usr/local/bin/python3
@@ -135,8 +138,21 @@ if [[ "${INSTALL_MODE}" == "clone" ]]; then
   rr_require_runtime_installation "${VENV_PYTHON}" "${REPO_ROOT}"
 else
   PACKAGE_TARGET="$(rr_package_install_target)"
+  PACKAGE_INDEX_URL="$(rr_package_index_url)"
+  PACKAGE_EXTRA_INDEX_URL="$(rr_package_extra_index_url)"
   rr_log "Installing runtime package target: ${PACKAGE_TARGET}"
-  "${VENV_PYTHON}" -m pip install "${PACKAGE_TARGET}"
+  rr_log "Using package index URL: ${PACKAGE_INDEX_URL}"
+  if [[ -n "${PACKAGE_EXTRA_INDEX_URL}" ]]; then
+    rr_log "Using package extra index URL: ${PACKAGE_EXTRA_INDEX_URL}"
+    "${VENV_PYTHON}" -m pip install \
+      --index-url "${PACKAGE_INDEX_URL}" \
+      --extra-index-url "${PACKAGE_EXTRA_INDEX_URL}" \
+      "${PACKAGE_TARGET}"
+  else
+    "${VENV_PYTHON}" -m pip install \
+      --index-url "${PACKAGE_INDEX_URL}" \
+      "${PACKAGE_TARGET}"
+  fi
 
   rr_require_runtime_installation "${VENV_PYTHON}"
 fi
