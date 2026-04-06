@@ -9,6 +9,7 @@ from reflex_reviewer.config import (
     get_oauth2_config,
     get_llm_api_config,
     get_model_config,
+    get_pipeline_runtime_config,
     get_vcs_config,
     resolve_dpo_training_data_dir,
     resolve_dpo_training_data_file_path,
@@ -120,6 +121,53 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
 
             cli_overridden = get_llm_api_config({"llm_api_key": "cli-api-key"})
             self.assertEqual(cli_overridden.get("api_key"), "cli-api-key")
+
+    def test_pipeline_runtime_defaults_to_package_mode(self):
+        with patch.dict("os.environ", {}, clear=True):
+            config = get_pipeline_runtime_config()
+
+        self.assertEqual(config.get("install_mode"), "package")
+        self.assertEqual(config.get("package_install_target"), "reflex-reviewer")
+
+    def test_pipeline_runtime_env_and_cli_override_precedence(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "RR_PIPELINE_INSTALL_MODE": "PACKAGE",
+                "RR_PACKAGE_INSTALL_TARGET": "env-package",
+                "RR_REPOSITORY_CLONE_URL": "https://example.com/repo.git",
+            },
+            clear=True,
+        ):
+            env_config = get_pipeline_runtime_config()
+            cli_config = get_pipeline_runtime_config(
+                {
+                    "pipeline_install_mode": "clone",
+                    "rr_package_install_target": "reflex-reviewer==0.1.3",
+                }
+            )
+
+        self.assertEqual(env_config.get("install_mode"), "package")
+        self.assertEqual(env_config.get("package_install_target"), "env-package")
+        self.assertEqual(
+            env_config.get("repository_clone_url"), "https://example.com/repo.git"
+        )
+        self.assertEqual(cli_config.get("install_mode"), "clone")
+        self.assertEqual(
+            cli_config.get("package_install_target"), "reflex-reviewer==0.1.3"
+        )
+
+    def test_pipeline_runtime_invalid_mode_falls_back_to_package(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "RR_PIPELINE_INSTALL_MODE": "invalid-mode",
+            },
+            clear=True,
+        ):
+            config = get_pipeline_runtime_config()
+
+        self.assertEqual(config.get("install_mode"), "package")
 
     def test_model_endpoint_defaults_and_normalization(self):
         with patch.dict("os.environ", {}, clear=True):

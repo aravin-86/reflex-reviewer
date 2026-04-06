@@ -18,6 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python <3.11 fallback
 _MISSING = object()
 _VALID_REASONING_EFFORTS = {"low", "medium", "high"}
 _VALID_MODEL_ENDPOINTS = {"responses", "chat_completions"}
+_VALID_PIPELINE_INSTALL_MODES = {"clone", "package"}
 _ENV_PLACEHOLDER_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(\|-([^}]*))?\}")
 _RUNTIME_OVERRIDES = {}
 _FILE_CONFIG = None
@@ -227,6 +228,13 @@ def _normalize_vcs_type(raw, default="bitbucket"):
 def _normalize_model_endpoint(raw, default="responses"):
     normalized = str(raw if raw is not None else default).strip().lower()
     if normalized in _VALID_MODEL_ENDPOINTS:
+        return normalized
+    return default
+
+
+def _normalize_pipeline_install_mode(raw, default="package"):
+    normalized = str(raw if raw is not None else default).strip().lower()
+    if normalized in _VALID_PIPELINE_INSTALL_MODES:
         return normalized
     return default
 
@@ -508,6 +516,60 @@ def get_llm_api_config(overrides=None):
         "files_path": _config_value("llm_api", "files_path", "/files"),
         "fine_tuning_jobs_path": _config_value(
             "llm_api", "fine_tuning_jobs_path", "/fine_tuning/jobs"
+        ),
+    }
+
+
+def get_pipeline_runtime_config(overrides=None):
+    install_mode = _normalize_pipeline_install_mode(
+        _resolve_toml_value(
+            overrides,
+            "pipeline_install_mode",
+            "pipeline_runtime",
+            "install_mode",
+            "package",
+        ),
+        default="package",
+    )
+
+    package_install_target = _resolve_toml_value(
+        overrides,
+        "rr_package_install_target",
+        "pipeline_runtime",
+        "package_install_target",
+        "reflex-reviewer",
+    )
+    if package_install_target is not None:
+        package_install_target = str(package_install_target).strip()
+        if not package_install_target:
+            package_install_target = "reflex-reviewer"
+
+    return {
+        "install_mode": install_mode,
+        "package_install_target": package_install_target,
+        "repository_clone_url": _resolve_toml_value(
+            overrides,
+            "rr_repository_clone_url",
+            "pipeline_runtime",
+            "repository_clone_url",
+        ),
+        "repository_dir": _resolve_toml_value(
+            overrides,
+            "rr_repository_dir",
+            "pipeline_runtime",
+            "repository_dir",
+        ),
+        "repository_ref": _resolve_toml_value(
+            overrides,
+            "rr_repository_ref",
+            "pipeline_runtime",
+            "repository_ref",
+        ),
+        "venv_dir": _resolve_toml_value(
+            overrides,
+            "rr_venv_dir",
+            "pipeline_runtime",
+            "venv_dir",
         ),
     }
 

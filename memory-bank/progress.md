@@ -7,6 +7,7 @@
 - ✅ README expanded with Build Pipeline pipeline-step setup and architecture best-practice guidance.
 - ✅ Build Pipeline runtime hardening added with dedicated virtualenv bootstrap and fail-fast dependency/runtime checks.
 - ✅ Build Pipeline setup-first bootstrap now centralizes clone/runtime prep in setup script; execution step scripts require prepared checkout/runtime.
+- ✅ Build Pipeline runtime now supports install-mode toggle with **package install as default** and clone as explicit opt-in.
 - ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY`) with test-file comments forced to `ADVISORY`.
 - ✅ Local/unit test bootstrap unblocked in this environment using isolated virtualenv + explicit dependency install path.
 
@@ -23,13 +24,16 @@
   - `distill-step.sh` on post-merge events,
   - `refine-step.sh` on monthly/on-demand triggers.
 - Build Pipeline runtime bootstrap script:
-  - `setup-pipeline-runtime.sh` to create/update dedicated venv and install from `requirements.txt`.
+  - `setup-pipeline-runtime.sh` to create/update dedicated venv and install runtime using selected mode:
+    - `package` (default): pip install from `RR_PACKAGE_INSTALL_TARGET`,
+    - `clone`: fresh clone + install from cloned `requirements.txt`.
 - Build Pipeline setup-first bootstrap behavior:
-  - `RR_REPOSITORY_CLONE_URL` required for setup script,
-  - optional clone location override via `RR_REPOSITORY_DIR`,
-  - optional branch/tag selection via `RR_REPOSITORY_REF`,
-  - setup script always removes existing clone directory and performs a fresh clone for deterministic execution,
-  - review/distill/refine scripts do not clone and fail fast unless setup has prepared repo/runtime.
+  - `RR_PIPELINE_INSTALL_MODE` controls runtime mode (`package` default or `clone`),
+  - `RR_PACKAGE_INSTALL_TARGET` controls package-mode pip target,
+  - in clone mode: `RR_REPOSITORY_CLONE_URL` required, optional `RR_REPOSITORY_DIR`/`RR_REPOSITORY_REF`, and setup always fresh-clones,
+  - review/distill/refine scripts do not clone,
+  - in clone mode scripts fail fast unless setup has prepared checkout/runtime,
+  - in package mode scripts run without repository checkout and validate installed package/runtime.
 - Pipeline step preflight validations:
   - Python version check (3.9+),
   - required module import checks,
@@ -47,6 +51,32 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Added mode-aware Build Pipeline runtime with package-install default:
+  - updated `reflex_reviewer/config.py`:
+    - added `get_pipeline_runtime_config(...)` and install-mode normalization (`clone|package`, default `package`),
+    - added support for env/TOML-backed package install target and pipeline runtime values.
+  - updated `reflex_reviewer.toml` with `[pipeline_runtime]` section:
+    - `install_mode`, `package_install_target`, `repository_clone_url`, `repository_dir`, `repository_ref`, `venv_dir`.
+  - updated build pipeline scripts:
+    - `scripts/build-pipeline/common.sh`:
+      - added `rr_pipeline_install_mode`, `rr_package_install_target`,
+      - mode-aware runtime and checkout behavior,
+      - runtime validation now supports installed package mode without repo root.
+    - `scripts/build-pipeline/setup-pipeline-runtime.sh`:
+      - package mode now default,
+      - package mode installs `RR_PACKAGE_INSTALL_TARGET`,
+      - clone mode retains fresh clone + requirements install behavior.
+    - `scripts/build-pipeline/review-step.sh`, `distill-step.sh`, `refine-step.sh`:
+      - mode-aware preflight (`clone` requires prepared checkout; `package` skips repo checkout).
+  - updated docs/examples:
+    - `README.md` Build Pipeline section updated for package-default mode and clone opt-in,
+    - `.env.example` updated with `RR_PIPELINE_INSTALL_MODE` and `RR_PACKAGE_INSTALL_TARGET`.
+  - updated tests:
+    - `tests/test_config_runtime_overrides.py` now covers pipeline runtime config defaults/normalization/override precedence.
+- Verification notes:
+  - `bash -n scripts/build-pipeline/common.sh scripts/build-pipeline/setup-pipeline-runtime.sh scripts/build-pipeline/review-step.sh scripts/build-pipeline/distill-step.sh scripts/build-pipeline/refine-step.sh` passes.
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides` passes (`Ran 21 tests ... OK`).
+
 - Aligned Build Pipeline env preflight/docs with LLM API runtime requirements:
   - updated `scripts/build-pipeline/common.sh`:
     - `rr_require_runtime_env(...)` now requires `LLM_API_BASE_URL` for all step scripts.

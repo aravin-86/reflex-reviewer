@@ -27,10 +27,13 @@ LLM API auth:
 
 Optional:
   LLM_API_PROXY_URL (optional proxy URL for outbound LLM API calls)
-  RR_REPOSITORY_DIR (prepared checkout dir from setup script; default: <cwd>/.reflex-reviewer-clone)
+  RR_PIPELINE_INSTALL_MODE (package [default] or clone)
+  RR_REPOSITORY_DIR (clone mode only; prepared checkout dir from setup script; default: <cwd>/.reflex-reviewer-clone)
   PYTHON_BIN (optional explicit interpreter override)
   RR_VENV_DIR (optional explicit venv dir override; resolved as <RR_VENV_DIR>/bin/python)
-  Default runtime without overrides: <repo>/.venv/bin/python
+  Default runtime without overrides:
+    - package mode: <cwd>/.reflex-reviewer-venv/bin/python (if created by setup script)
+    - clone mode: <repo>/.venv/bin/python
 USAGE
 }
 
@@ -41,7 +44,11 @@ fi
 
 EXTRA_ARGS=("$@")
 
-REPO_ROOT="$(rr_require_prepared_repository_checkout "${SCRIPT_DIR}")"
+INSTALL_MODE="$(rr_pipeline_install_mode)"
+REPO_ROOT=""
+if [[ "${INSTALL_MODE}" == "clone" ]]; then
+  REPO_ROOT="$(rr_require_prepared_repository_checkout "${SCRIPT_DIR}")"
+fi
 
 PYTHON_BIN="$(rr_python_bin "${REPO_ROOT}")"
 rr_require_runtime_installation "${PYTHON_BIN}" "${REPO_ROOT}"
@@ -50,7 +57,9 @@ rr_require_runtime_env
 rr_require_env "DPO_TRAINING_DATA_DIR"
 rr_ensure_directory "${DPO_TRAINING_DATA_DIR}"
 
-cd "${REPO_ROOT}"
+if [[ -n "${REPO_ROOT}" ]]; then
+  cd "${REPO_ROOT}"
+fi
 rr_log "Invoking refine flow."
 
 cmd=(

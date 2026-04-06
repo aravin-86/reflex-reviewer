@@ -292,60 +292,74 @@ LLM API auth configuration (choose one):
 
 Required for setup step only:
 
-- `RR_REPOSITORY_CLONE_URL`
+- `RR_REPOSITORY_CLONE_URL` (only when `RR_PIPELINE_INSTALL_MODE=clone`)
 
 Optional:
 
 - `LLM_API_PROXY_URL` (optional proxy for outbound LLM API calls)
-- `RR_REPOSITORY_DIR` (prepared checkout dir from setup script; defaults to `<cwd>/.reflex-reviewer-clone`)
-- `RR_REPOSITORY_REF` (optional branch/tag for setup clone via `git clone --branch`)
+- `RR_PIPELINE_INSTALL_MODE` (`package` default, or `clone`)
+- `RR_PACKAGE_INSTALL_TARGET` (pip install target used in package mode; default `reflex-reviewer`)
+- `RR_REPOSITORY_DIR` (clone mode prepared checkout dir; defaults to `<cwd>/.reflex-reviewer-clone`)
+- `RR_REPOSITORY_REF` (optional branch/tag for clone mode via `git clone --branch`)
 - `PYTHON_BIN` (optional explicit interpreter override)
 - `RR_VENV_DIR` (optional explicit venv-dir override; resolved as `<RR_VENV_DIR>/bin/python`)
-- Default runtime without overrides: `<repo>/.venv/bin/python`
+- Default runtime without overrides:
+  - package mode: `<cwd>/.reflex-reviewer-venv/bin/python`
+  - clone mode: `<repo>/.venv/bin/python`
 
 Build Pipeline setup behavior:
 
-- `setup-pipeline-runtime.sh` is the only script that clones the repository.
-- Setup always removes existing `RR_REPOSITORY_DIR` and performs a fresh clone.
-- Step scripts (`review-step.sh`, `distill-step.sh`, `refine-step.sh`) do not clone and require a prepared checkout/runtime.
-- If prepared checkout/runtime is missing, step scripts fail fast and instruct running setup first.
+- `setup-pipeline-runtime.sh` supports two runtime modes:
+  - `package` mode (default): creates/uses venv and installs `RR_PACKAGE_INSTALL_TARGET` with pip.
+  - `clone` mode: performs fresh clone, then installs dependencies from cloned `requirements.txt`.
+- Step scripts (`review-step.sh`, `distill-step.sh`, `refine-step.sh`) do not clone.
+- In `clone` mode, step scripts require prepared checkout/runtime and fail fast if missing.
 
 Runtime bootstrap for pipeline runner hosts:
 
 ```bash
-# Create fresh checkout + runtime and install dependencies
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+# Default package mode: install runtime package in venv
+./scripts/build-pipeline/setup-pipeline-runtime.sh
+
+# Package mode with explicit pinned target
+RR_PACKAGE_INSTALL_TARGET="reflex-reviewer==0.1.3" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+
+# Clone mode (requires clone URL)
+RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
 
 # Optional custom venv location
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
+./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
 ```
 
 What setup validates:
 
 - Python 3.9+
 - importability of runtime modules (`openai`, `requests`, `tenacity`, `dotenv`, `authlib`)
-- `reflex_reviewer` package import from repository root
+- `reflex_reviewer` package import from selected runtime
 
 Each pipeline step script performs fail-fast checks before execution:
 
-- repository layout checks (`requirements.txt`, `reflex_reviewer/`)
+- repository layout checks (`requirements.txt`, `reflex_reviewer/`) in clone mode only
 - runtime import checks for required Python modules
 - data directory creation/writability checks for distill/refine
 
 Example invocations:
 
 ```bash
-# setup first
-RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
+# setup first (default package mode)
+./scripts/build-pipeline/setup-pipeline-runtime.sh
 
 # PR event pipeline step
-RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" ./scripts/build-pipeline/review-step.sh 123
+./scripts/build-pipeline/review-step.sh 123
 
 # Post-merge pipeline step
-RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
+DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
 
 # Monthly/on-demand refine pipeline step
-RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
+DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
+
+# Clone-mode step examples
+RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" ./scripts/build-pipeline/review-step.sh 123
 ```
 
 ### Best-practice Build Pipeline step architecture
@@ -360,7 +374,7 @@ To preserve Reflex Reviewer’s intended learning loop (`review -> distill -> re
 
 Recommended operational setup:
 
-1. Run `setup-pipeline-runtime.sh` first to create a fresh checkout and runtime.
+1. Run `setup-pipeline-runtime.sh` first to prepare runtime (package mode by default; clone mode when explicitly enabled).
 2. Keep runtime credentials in secure environment variables, not inline in pipeline config.
 3. Ensure PR events pass a PR id explicitly if your pipeline trigger context does not export one of the recognized PR id variables.
 4. Keep `refine-step.sh` asynchronous (monthly/on-demand) rather than tied to synchronous PR pipeline latency.

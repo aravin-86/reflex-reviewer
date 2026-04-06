@@ -2,8 +2,8 @@
 
 ## Current focus
 - Keep Build Pipeline execution simple with setup-first repository/runtime bootstrapping.
-- Ensure Build Pipeline step scripts run from setup-prepared repo context with cloned-repo local `.venv` runtime by default.
-- Keep runtime setup hardened for Build Pipeline runner hosts using cloned-repo local virtualenv bootstrap and fail-fast checks.
+- Ensure Build Pipeline step scripts support both package-installed and clone-based runtime execution, with package install as the default mode.
+- Keep runtime setup hardened for Build Pipeline runner hosts using mode-aware virtualenv bootstrap and fail-fast checks.
 - Keep local unit-test bootstrap deterministic under PEP 668 environments via isolated virtualenv usage.
 - Enforce strict inline comment severity taxonomy in review/distill flows:
   - allowed severities: `CRITICAL`, `MAJOR`, `ADVISORY`
@@ -40,11 +40,20 @@
 - Use asynchronous monthly/on-demand triggering for refine to avoid tying model training to synchronous PR lifecycle latency.
 - Use `requirements.txt` for pipeline-runner runtime dependency installation in cloned repo local `.venv` (overrideable via `RR_VENV_DIR`).
 - Add fail-fast runtime checks in Build Pipeline scripts for Python version, required module imports, repository layout, and data-directory writability.
-- Prefer runtime auto-discovery via `<repo>/.venv/bin/python` with `PYTHON_BIN` / `RR_VENV_DIR` overrides.
+- Prefer runtime auto-discovery via mode defaults with `PYTHON_BIN` / `RR_VENV_DIR` overrides:
+  - package mode default: `<cwd>/.reflex-reviewer-venv/bin/python`,
+  - clone mode default: `<repo>/.venv/bin/python`.
 - `setup-pipeline-runtime.sh` is now the only script that clones `RR_REPOSITORY_CLONE_URL` into `RR_REPOSITORY_DIR`.
 - Setup clone flow always removes `RR_REPOSITORY_DIR` (when present) and performs a fresh clone for deterministic execution.
 - Step scripts (`review-step.sh` / `distill-step.sh` / `refine-step.sh`) no longer clone/re-exec; they fail fast unless setup has prepared repository/runtime.
 - Optional clone target selection supported via `RR_REPOSITORY_REF` (branch/tag).
+- Build Pipeline runtime bootstrap now supports install-mode toggle via `RR_PIPELINE_INSTALL_MODE`:
+  - `package` (default): `setup-pipeline-runtime.sh` installs `RR_PACKAGE_INSTALL_TARGET` into runtime venv without repository clone,
+  - `clone`: setup performs fresh clone using `RR_REPOSITORY_CLONE_URL`, then installs from cloned `requirements.txt`.
+- Step scripts now branch by install mode:
+  - clone mode requires prepared repository checkout and validates repository layout,
+  - package mode skips repository checkout requirement and validates installed package/runtime only.
+- Runtime/setup docs and examples now reflect package mode as default with clone mode as explicit opt-in.
 - Pipeline runtime resolver now logs selected interpreter path with minimal safe verbosity.
 - Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.

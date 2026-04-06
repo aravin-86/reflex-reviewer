@@ -34,7 +34,9 @@
 - Distill hooks run post-merge or on chosen trigger.
 - Refine runs on monthly schedule or on-demand trigger once sufficient DPO data exists.
 - Build Pipeline scripts follow setup-first bootstrap:
-  - `setup-pipeline-runtime.sh` clones remote repository from `RR_REPOSITORY_CLONE_URL`,
-  - setup removes existing clone dir and performs a fresh clone for deterministic state,
-  - setup creates/updates runtime virtualenv and installs dependencies,
-  - `review-step.sh` / `distill-step.sh` / `refine-step.sh` run against the prepared checkout/runtime and fail fast if setup has not been run.
+  - `setup-pipeline-runtime.sh` supports install-mode toggle via `RR_PIPELINE_INSTALL_MODE`:
+    - `package` (default): creates/updates runtime virtualenv and installs `RR_PACKAGE_INSTALL_TARGET` via pip,
+    - `clone`: fresh clones from `RR_REPOSITORY_CLONE_URL` and installs dependencies from cloned `requirements.txt`.
+  - `review-step.sh` / `distill-step.sh` / `refine-step.sh` are mode-aware:
+    - clone mode requires prepared checkout/runtime and validates repository layout,
+    - package mode runs without repository checkout and validates installed package/runtime.

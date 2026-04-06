@@ -10,25 +10,30 @@ print_usage() {
 Usage: setup-pipeline-runtime.sh [options]
 
 Performs Build Pipeline setup by:
-1) creating a fresh repository clone into RR_REPOSITORY_DIR
-2) creating/updating runtime virtualenv
-3) installing required Python packages from requirements.txt
+1) creating/updating runtime virtualenv
+2) installing runtime using selected mode:
+   - package mode (default): pip install RR_PACKAGE_INSTALL_TARGET
+   - clone mode: fresh clone + pip install -r requirements.txt from clone
 
 Options:
   --venv-dir <path>     Virtualenv directory
-                        (default: RR_VENV_DIR or <repo>/.venv)
+                        (default: RR_VENV_DIR or mode-specific default)
   --python-bin <path>   Python executable used to create venv (default: python3)
   --recreate            Delete existing venv directory before creating it
   -h, --help            Show this help message
 
 Environment:
+  RR_PIPELINE_INSTALL_MODE  Runtime setup mode: package (default) or clone
+  RR_PACKAGE_INSTALL_TARGET Pip install target for package mode (default: reflex-reviewer)
   RR_VENV_DIR           Optional default venv path override
-  RR_REPOSITORY_CLONE_URL   Required remote repository URL for cloning checkout
-  RR_REPOSITORY_DIR         Optional clone directory (default: <cwd>/.reflex-reviewer-clone)
-  RR_REPOSITORY_REF         Optional branch/tag for clone
+  RR_REPOSITORY_CLONE_URL   Required only when RR_PIPELINE_INSTALL_MODE=clone
+  RR_REPOSITORY_DIR         Optional clone directory for clone mode (default: <cwd>/.reflex-reviewer-clone)
+  RR_REPOSITORY_REF         Optional branch/tag for clone mode
 
 Examples:
   ./scripts/build-pipeline/setup-pipeline-runtime.sh
+  RR_PIPELINE_INSTALL_MODE=package RR_PACKAGE_INSTALL_TARGET='reflex-reviewer==0.1.3' ./scripts/build-pipeline/setup-pipeline-runtime.sh
+  RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_CLONE_URL='<REPO_CLONE_URL>' ./scripts/build-pipeline/setup-pipeline-runtime.sh
   ./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
   ./scripts/build-pipeline/setup-pipeline-runtime.sh --python-bin /usr/local/bin/python3
 USAGE
@@ -79,11 +84,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-REPO_ROOT="$(rr_clone_repository_checkout)"
-rr_require_repo_layout "${REPO_ROOT}"
+INSTALL_MODE="$(rr_pipeline_install_mode)"
+REPO_ROOT=""
+
+if [[ "${INSTALL_MODE}" == "clone" ]]; then
+  REPO_ROOT="$(rr_clone_repository_checkout)"
+  rr_require_repo_layout "${REPO_ROOT}"
+fi
 
 if [[ -z "${VENV_DIR}" ]]; then
-  VENV_DIR="$(rr_default_venv_dir "${REPO_ROOT}")"
+  if [[ "${INSTALL_MODE}" == "clone" ]]; then
+    VENV_DIR="$(rr_default_venv_dir "${REPO_ROOT}")"
+  else
+    VENV_DIR="$(rr_default_venv_dir)"
+  fi
 fi
 
 if ! command -v "${BOOTSTRAP_PYTHON}" >/dev/null 2>&1; then
@@ -114,16 +128,30 @@ fi
 rr_log "Upgrading pip in virtualenv"
 "${VENV_PYTHON}" -m pip install --upgrade pip
 
-rr_log "Installing runtime dependencies from requirements.txt"
-"${VENV_PYTHON}" -m pip install -r "${REPO_ROOT}/requirements.txt"
+if [[ "${INSTALL_MODE}" == "clone" ]]; then
+  rr_log "Installing runtime dependencies from requirements.txt"
+  "${VENV_PYTHON}" -m pip install -r "${REPO_ROOT}/requirements.txt"
 
-rr_require_runtime_installation "${VENV_PYTHON}" "${REPO_ROOT}"
+  rr_require_runtime_installation "${VENV_PYTHON}" "${REPO_ROOT}"
+else
+  PACKAGE_TARGET="$(rr_package_install_target)"
+  rr_log "Installing runtime package target: ${PACKAGE_TARGET}"
+  "${VENV_PYTHON}" -m pip install "${PACKAGE_TARGET}"
+
+  rr_require_runtime_installation "${VENV_PYTHON}"
+fi
 
 rr_log "Runtime setup complete"
 echo ""
-echo "Use this repository checkout for pipeline step scripts:"
-echo "  export RR_REPOSITORY_DIR=${REPO_ROOT}"
-echo ""
+if [[ "${INSTALL_MODE}" == "clone" ]]; then
+  echo "Use this repository checkout for pipeline step scripts:"
+  echo "  export RR_REPOSITORY_DIR=${REPO_ROOT}"
+  echo ""
+else
+  echo "Package install mode selected (default)."
+  echo "Set RR_PIPELINE_INSTALL_MODE=clone only when you need repository-clone runtime behavior."
+  echo ""
+fi
 echo "Use this interpreter for pipeline step scripts:"
 echo "  export PYTHON_BIN=${VENV_PYTHON}"
 echo "or"

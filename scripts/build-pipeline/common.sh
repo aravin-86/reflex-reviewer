@@ -71,6 +71,32 @@ rr_require_llm_api_auth() {
   rr_require_env "OAUTH2_USER_SECRET"
 }
 
+rr_pipeline_install_mode() {
+  local mode="${RR_PIPELINE_INSTALL_MODE:-package}"
+  mode="$(printf '%s' "${mode}" | tr '[:upper:]' '[:lower:]')"
+
+  case "${mode}" in
+    clone|package)
+      ;;
+    *)
+      rr_log "Unknown RR_PIPELINE_INSTALL_MODE='${mode}'. Falling back to 'package'." >&2
+      mode="package"
+      ;;
+  esac
+
+  echo "${mode}"
+}
+
+rr_package_install_target() {
+  local target="${RR_PACKAGE_INSTALL_TARGET:-reflex-reviewer}"
+  target="$(printf '%s' "${target}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "${target}" ]]; then
+    target="reflex-reviewer"
+  fi
+
+  echo "${target}"
+}
+
 rr_repo_root_from_script_dir() {
   local script_dir="$1"
   (cd "${script_dir}/../.." && pwd)
@@ -105,6 +131,13 @@ rr_clone_repository_checkout() {
 }
 
 rr_require_prepared_repository_checkout() {
+  local install_mode
+  install_mode="$(rr_pipeline_install_mode)"
+  if [[ "${install_mode}" != "clone" ]]; then
+    rr_error "Prepared repository checkout is only required when RR_PIPELINE_INSTALL_MODE=clone."
+    return 1
+  fi
+
   local script_dir="${1:-}"
   local repo_dir
   repo_dir="$(rr_default_repository_dir)"
@@ -146,8 +179,18 @@ rr_require_repo_layout() {
 }
 
 rr_default_venv_dir() {
-  local repo_root="$1"
-  echo "${RR_VENV_DIR:-${repo_root}/.venv}"
+  local repo_root="${1:-}"
+
+  if [[ -n "${RR_VENV_DIR:-}" ]]; then
+    echo "${RR_VENV_DIR}"
+    return 0
+  fi
+
+  if [[ -n "${repo_root}" ]]; then
+    echo "${repo_root}/.venv"
+  else
+    echo "${PWD}/.reflex-reviewer-venv"
+  fi
 }
 
 rr_python_bin() {
@@ -171,6 +214,14 @@ rr_python_bin() {
     local_repo_venv_bin="${repo_root}/.venv/bin/python"
     if [[ -x "${local_repo_venv_bin}" ]]; then
       bin="${local_repo_venv_bin}"
+    fi
+  fi
+
+  if [[ -z "${bin}" && -z "${repo_root}" ]]; then
+    local package_mode_venv_bin
+    package_mode_venv_bin="$(rr_default_venv_dir)/bin/python"
+    if [[ -x "${package_mode_venv_bin}" ]]; then
+      bin="${package_mode_venv_bin}"
     fi
   fi
 
@@ -217,7 +268,7 @@ rr_require_python_module() {
 
 rr_require_runtime_installation() {
   local python_bin="$1"
-  local repo_root="$2"
+  local repo_root="${2:-}"
 
   rr_require_python_min_version "${python_bin}"
 
@@ -231,9 +282,16 @@ rr_require_runtime_installation() {
     return 1
   fi
 
-  if ! (cd "${repo_root}" && "${python_bin}" -c 'import reflex_reviewer'); then
-    rr_error "Unable to import local package 'reflex_reviewer' from repo root '${repo_root}'."
-    return 1
+  if [[ -n "${repo_root}" ]]; then
+    if ! (cd "${repo_root}" && "${python_bin}" -c 'import reflex_reviewer'); then
+      rr_error "Unable to import local package 'reflex_reviewer' from repo root '${repo_root}'."
+      return 1
+    fi
+  else
+    if ! "${python_bin}" -c 'import reflex_reviewer'; then
+      rr_error "Unable to import installed package 'reflex_reviewer' from runtime '${python_bin}'."
+      return 1
+    fi
   fi
 
   return 0
