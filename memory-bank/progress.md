@@ -51,6 +51,25 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated review/distill summary-comment behavior to preserve history and keep distillation clean:
+  - updated `reflex_reviewer/review.py`:
+    - review summary comments are now append-only (no delete/replace of older summaries),
+    - added explicit summary marker in posted summary bodies: `<!-- reflex-reviewer-summary -->`,
+    - summary detection supports marker + legacy summary body shape,
+    - existing comment-state extraction now tracks unresolved inline bot comments only.
+  - updated `reflex_reviewer/distill.py`:
+    - summary detection now supports explicit summary marker in addition to legacy summary shape,
+    - all summary comments remain excluded from sentiment classification and DPO extraction.
+  - updated tests:
+    - `tests/test_review_model_api.py` for append-only summary posting and marker presence,
+    - `tests/test_distill_sentiment.py` for marker-based summary detection and summary-only DPO exclusion.
+  - updated docs:
+    - `README.md` now documents append-only summary posting and distill summary exclusion behavior,
+    - `memory-bank/activeContext.md` now records append-only summary + summary-marker decisions.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_distill_sentiment`
+  - Result: `Ran 38 tests ... OK`.
+
 - Added package-index configurability for Build Pipeline package-mode runtime installation (TestPyPI-first by default):
   - updated `reflex_reviewer.toml` `[pipeline_runtime]`:
     - added `package_index_url` (default `https://test.pypi.org/simple/`)

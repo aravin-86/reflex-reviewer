@@ -46,6 +46,7 @@ RESPONSE_STATE_FILE = review_config["response_state_file"]
 RESPONSE_STATE_TTL_DAYS = review_config["response_state_ttl_days"]
 ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
+SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
@@ -186,6 +187,9 @@ def _is_bot_comment_text(text, team_name):
 
 
 def _is_summary_comment_text(text, team_name):
+    if SUMMARY_COMMENT_MARKER in (text or ""):
+        return True
+
     if not _is_bot_comment_text(text, team_name):
         return False
     return "**Verdict:**" in text and "**Summary:**" in text and "**Checklist**" in text
@@ -566,11 +570,9 @@ def build_existing_feedback_context(activities, team_name):
 
 
 def _extract_existing_comment_state(activities, team_name):
-    """Extract latest summary comment and unresolved bot inline comment keys."""
+    """Extract unresolved bot inline comment keys from existing PR comments."""
     comment_entries = []
     human_reply_parent_ids = set()
-    summary_comment_id = None
-    summary_comment_version = None
     unresolved_inline_comment_keys = set()
 
     for activity in activities:
@@ -596,13 +598,6 @@ def _extract_existing_comment_state(activities, team_name):
 
         comment_id = comment.get("id")
         if _is_summary_comment_text(raw_text, team_name):
-            if comment_id is not None:
-                summary_comment_id = str(comment_id)
-                raw_version = comment.get("version")
-                try:
-                    summary_comment_version = int(raw_version)
-                except (TypeError, ValueError):
-                    summary_comment_version = None
             continue
 
         anchor = comment.get("anchor")
@@ -626,8 +621,6 @@ def _extract_existing_comment_state(activities, team_name):
             unresolved_inline_comment_keys.add(inline_key)
 
     return {
-        "summary_comment_id": summary_comment_id,
-        "summary_comment_version": summary_comment_version,
         "unresolved_inline_comment_keys": unresolved_inline_comment_keys,
     }
 
@@ -673,6 +666,7 @@ def _build_summary_comment_body(verdict, summary, checklist, team_name):
 
     body = (
         f"### #{hashtag_team_name}\n\n"
+        f"{SUMMARY_COMMENT_MARKER}\n\n"
         f"**Verdict:** `{normalized_verdict}`\n\n"
         f"**Summary:** {normalized_summary}\n\n"
         f"**Checklist**\n"
@@ -691,39 +685,16 @@ def upsert_summary_comment(
     existing_summary_comment_id=None,
     existing_summary_comment_version=None,
 ):
-    """Delete existing summary comment if present, then create a fresh one."""
+    """Post a new summary comment for the current review run."""
     body = _build_summary_comment_body(verdict, summary, checklist, team_name)
 
-    if existing_summary_comment_id:
-        if existing_summary_comment_version is None:
-            logger.warning(
-                "Cannot replace existing summary comment id=%s due to missing version.",
-                existing_summary_comment_id,
-            )
-            return None
-
-        try:
-            vcs_client.delete_comment(
-                pr_id,
-                existing_summary_comment_id,
-                version=existing_summary_comment_version,
-            )
-            logger.info(
-                "Deleted existing summary comment id=%s pr_id=%s",
-                existing_summary_comment_id,
-                pr_id,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to delete summary comment id=%s. Will not create a duplicate summary comment. Error: %s",
-                existing_summary_comment_id,
-                e,
-                exc_info=True,
-            )
-            return None
+    # Keep backward-compatible signature while intentionally posting append-only
+    # summary comments for each run.
+    del existing_summary_comment_id
+    del existing_summary_comment_version
 
     result = vcs_client.post_comment(pr_id, body)
-    logger.info("Posted fresh summary comment. pr_id=%s", pr_id)
+    logger.info("Posted summary comment. pr_id=%s", pr_id)
     return result
 
 
@@ -951,15 +922,9 @@ def run(
                     summary,
                     checklist,
                     run_team_name,
-                    existing_summary_comment_id=existing_comment_state.get(
-                        "summary_comment_id"
-                    ),
-                    existing_summary_comment_version=existing_comment_state.get(
-                        "summary_comment_version"
-                    ),
                 )
             except requests.exceptions.RequestException:
-                logger.exception("Failed to upsert summary comment")
+                logger.exception("Failed to post summary comment")
 
             logger.info(
                 "No inline comments to post. Review run completed with summary only."
@@ -1047,15 +1012,9 @@ def run(
                 summary,
                 checklist,
                 run_team_name,
-                existing_summary_comment_id=existing_comment_state.get(
-                    "summary_comment_id"
-                ),
-                existing_summary_comment_version=existing_comment_state.get(
-                    "summary_comment_version"
-                ),
             )
         except requests.exceptions.RequestException:
-            logger.exception("Failed to upsert summary comment")
+            logger.exception("Failed to post summary comment")
 
         logger.info(
             "Review run completed. pr_id=%s posted_inline=%s skipped_inline=%s",

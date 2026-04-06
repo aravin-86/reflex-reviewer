@@ -62,6 +62,11 @@
 - Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before dedupe keying and posting.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
+- Review summary handling is now append-only:
+  - review no longer deletes/replaces older summary comments,
+  - each review run posts a fresh summary comment.
+- Review/distill summary detection now supports an explicit marker `<!-- reflex-reviewer-summary -->` in addition to legacy summary body shape.
+- Distill now consistently excludes all summary comments (legacy + marker-based) from sentiment classification inputs and DPO extraction.
 - Add package test extra (`.[test]`) in `pyproject.toml` for explicit local test tooling install.
 - Keep local verification path venv-first (`python3 -m venv .venv` + editable install) to avoid system Python mutation under externally managed environments.
 - Align config unit test expectation with current TOML/runtime default where `model_endpoint` defaults to `chat_completions`.

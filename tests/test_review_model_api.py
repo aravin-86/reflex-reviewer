@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, Mock, patch
 
 import reflex_reviewer.review as review_module
 
@@ -76,8 +76,9 @@ class ReviewModelApiTests(unittest.TestCase):
         )
 
         self.assertIn("### #TEAM-PRODUCT", body)
+        self.assertIn("<!-- reflex-reviewer-summary -->", body)
 
-    def test_upsert_summary_comment_replaces_existing_summary(self):
+    def test_upsert_summary_comment_posts_without_deleting_existing_summary(self):
         vcs_client = Mock()
         vcs_client.post_comment.return_value = {"id": 101}
 
@@ -93,16 +94,12 @@ class ReviewModelApiTests(unittest.TestCase):
         )
 
         self.assertEqual(result, {"id": 101})
-        self.assertEqual(
-            vcs_client.mock_calls[:2],
-            [
-                call.delete_comment(123, "45", version=2),
-                call.post_comment(123, ANY),
-            ],
-        )
+        vcs_client.delete_comment.assert_not_called()
+        vcs_client.post_comment.assert_called_once_with(123, ANY)
 
-    def test_upsert_summary_comment_skips_when_existing_version_missing(self):
+    def test_upsert_summary_comment_posts_when_existing_version_missing(self):
         vcs_client = Mock()
+        vcs_client.post_comment.return_value = {"id": 202}
 
         result = review_module.upsert_summary_comment(
             vcs_client,
@@ -115,9 +112,9 @@ class ReviewModelApiTests(unittest.TestCase):
             existing_summary_comment_version=None,
         )
 
-        self.assertIsNone(result)
+        self.assertEqual(result, {"id": 202})
         vcs_client.delete_comment.assert_not_called()
-        vcs_client.post_comment.assert_not_called()
+        vcs_client.post_comment.assert_called_once_with(123, ANY)
 
     def test_build_previous_response_id_uses_project_repo_and_pr(self):
         previous_response_id = review_module._build_previous_response_id(

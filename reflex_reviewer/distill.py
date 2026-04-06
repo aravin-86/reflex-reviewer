@@ -33,6 +33,7 @@ SENTIMENT_UNSURE = "UNSURE"
 VALID_SENTIMENTS = {SENTIMENT_ACCEPTED, SENTIMENT_REJECTED, SENTIMENT_UNSURE}
 ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
+SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
@@ -147,6 +148,9 @@ def _is_bot_comment_text(text, team_name=""):
 
 
 def _is_summary_comment_text(text, team_name=""):
+    if SUMMARY_COMMENT_MARKER in (text or ""):
+        return True
+
     if not _is_bot_comment_text(text, team_name):
         return False
     return "**Verdict:**" in text and "**Summary:**" in text and "**Checklist**" in text

@@ -106,10 +106,12 @@ flowchart TB
    - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`
    - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
    - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context for the draft stage response when a response id is available
-   - Posts summary and optional inline comments back to VCS
+   - Posts a new summary comment for every review run (append-only; existing summary comments are preserved)
+   - Posts optional inline comments back to VCS
 
 2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**
    - Reads paginated PR activities and builds root comment threads
+   - Excludes all review summary comments from sentiment classification and DPO pair extraction (supports both legacy summary shape and explicit summary marker)
    - Ranks threads by reply count and selects top configured threads
    - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY`) with test-file comments coerced to `ADVISORY`
    - Runs one batched LLM API classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`

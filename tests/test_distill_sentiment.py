@@ -41,6 +41,19 @@ class DistillThreadAssociationTests(unittest.TestCase):
             _comment_category({"text": summary_text}, "TEAM-ONE"), "summary-comment"
         )
 
+    def test_summary_comment_detection_supports_summary_marker(self):
+        marker_only_summary = (
+            "### #TEAM-ONE\n\n"
+            "<!-- reflex-reviewer-summary -->\n\n"
+            "Run summary"
+        )
+
+        self.assertTrue(_is_summary_comment_text(marker_only_summary, "TEAM-ONE"))
+        self.assertEqual(
+            _comment_category({"text": marker_only_summary}, "TEAM-ONE"),
+            "summary-comment",
+        )
+
     def test_build_comment_threads_associates_replies_with_normalized_parent_id(self):
         activities = [
             {
@@ -423,6 +436,54 @@ class DistillRejectedPreferencePairTests(unittest.TestCase):
 
 
 class DistillDpoExtractionTests(unittest.TestCase):
+    def test_extract_dpo_pairs_ignores_all_summary_comments(self):
+        summary_comment_legacy = (
+            "### #TEAM-ONE\n\n"
+            "**Verdict:** `APPROVED`\n\n"
+            "**Summary:** Looks good\n\n"
+            "**Checklist**\n"
+            "- None"
+        )
+        summary_comment_with_marker = (
+            "### #TEAM-ONE\n\n"
+            "<!-- reflex-reviewer-summary -->\n\n"
+            "**Verdict:** `CHANGES_SUGGESTED`\n\n"
+            "**Summary:** Follow up\n\n"
+            "**Checklist**\n"
+            "- Item"
+        )
+
+        top_threads = [
+            {
+                "comment_id": "s-legacy",
+                "comment": {"id": "s-legacy", "text": summary_comment_legacy},
+                "replies": [{"id": "s-legacy-r1", "text": "Thanks"}],
+                "replies_count": 1,
+            },
+            {
+                "comment_id": "s-marker",
+                "comment": {"id": "s-marker", "text": summary_comment_with_marker},
+                "replies": [{"id": "s-marker-r1", "text": "Got it"}],
+                "replies_count": 1,
+            },
+        ]
+
+        dpo_pairs, metrics = _extract_dpo_pairs_from_threads(
+            top_threads,
+            sentiment_by_comment_id={
+                "s-legacy": SENTIMENT_ACCEPTED,
+                "s-marker": SENTIMENT_REJECTED,
+            },
+            prompt_text="prompt",
+            team_name="TEAM-ONE",
+        )
+
+        self.assertEqual(dpo_pairs, [])
+        self.assertEqual(metrics["eligible_bot_comment_count"], 0)
+        self.assertEqual(metrics["accepted_count"], 0)
+        self.assertEqual(metrics["rejected_count"], 0)
+        self.assertEqual(metrics["unsure_count"], 0)
+
     def test_extract_dpo_pairs_includes_accepted_and_rejected_bot_comments(self):
         bot_comment_accepted = "Please rename variable\n\n### #TEAM-ONE"
         bot_comment_rejected = "Please split this function\n\n### #TEAM-ONE"
