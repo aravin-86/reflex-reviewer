@@ -1,5 +1,5 @@
 from ..config import get_vcs_config
-from .bitbucket_vcs import BitbucketVCSClient
+from .bitbucket_data_center import BitbucketDataCenterClient
 
 
 def get_vcs_client(vcs_type=None, config_overrides=None):
@@ -15,7 +15,7 @@ def get_vcs_client(vcs_type=None, config_overrides=None):
     )
 
     if resolved_vcs_type == "bitbucket":
-        return BitbucketVCSClient(resolved_vcs_config)
+        return BitbucketDataCenterClient(resolved_vcs_config)
     if resolved_vcs_type == "oci_devops_scm":
         raise NotImplementedError(
             "VCS client for 'oci_devops_scm' is not implemented yet."

@@ -14,7 +14,7 @@
 ## Scope
 - Python package and CLI tooling for repository review automation.
 - Pluggable VCS layer (currently Bitbucket implementation is present).
-- LiteLLM-backed model access, including responses/chat completion paths.
+- LLM API-backed model access, including responses/chat completion paths.
 - Runtime configuration via CLI + environment/TOML-backed config resolution.
 
 ## Non-goals (current snapshot)

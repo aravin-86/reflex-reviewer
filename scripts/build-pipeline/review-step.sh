@@ -23,16 +23,18 @@ Required environment variables:
   TEAM_NAME
   DRAFT_MODEL
   JUDGE_MODEL
+  LLM_API_BASE_URL
   VCS_BASE_URL
   VCS_PROJECT_KEY
   VCS_REPO_SLUG
   VCS_TOKEN
 
-LiteLLM auth:
-  - either LITELLM_API_KEY
+LLM API auth:
+  - either LLM_API_KEY
   - or OAUTH2_TOKEN_URL + OAUTH2_USER_ID + OAUTH2_USER_SECRET
 
 Optional:
+  LLM_API_PROXY_URL (optional proxy URL for outbound LLM API calls)
   RR_REPOSITORY_DIR (prepared checkout dir from setup script; default: <cwd>/.reflex-reviewer-clone)
   PYTHON_BIN (optional explicit interpreter override)
   RR_VENV_DIR (optional explicit venv dir override; resolved as <RR_VENV_DIR>/bin/python)

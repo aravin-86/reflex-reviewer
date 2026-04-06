@@ -22,7 +22,7 @@
 - Repository rule emphasizes use of `reflex_reviewer.toml` for env-driven values.
 
 ## External integrations
-- **LiteLLM-compatible endpoint** for model inference and fine-tune related operations.
+- **LLM API-compatible endpoint** for model inference and fine-tune related operations.
 - **VCS provider integration** (Bitbucket implementation currently present) for PR data/comment APIs.
 - **OAuth2** support for token-based auth fallback.
 

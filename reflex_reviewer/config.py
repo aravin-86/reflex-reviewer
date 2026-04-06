@@ -212,7 +212,7 @@ def _to_bool(value, default=False):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _normalize_litellm_reasoning_effort(raw, default="high"):
+def _normalize_llm_api_reasoning_effort(raw, default="high"):
     normalized = str(raw if raw is not None else default).strip().lower()
     if normalized in _VALID_REASONING_EFFORTS:
         return normalized
@@ -389,15 +389,17 @@ def get_model_config(overrides=None):
         default="responses",
     )
 
-    reasoning_effort = _normalize_litellm_reasoning_effort(
-        _resolve_toml_value(
-            overrides,
-            "litellm_reasoning_effort",
-            "model",
-            "reasoning_effort",
-            "high",
-        )
+    raw_reasoning_effort = _resolve_toml_value(
+        overrides,
+        "llm_api_reasoning_effort",
+        "model",
+        "reasoning_effort",
+        "high",
     )
+    if not raw_reasoning_effort:
+        raw_reasoning_effort = os.getenv("LLM_API_REASONING_EFFORT") or "high"
+
+    reasoning_effort = _normalize_llm_api_reasoning_effort(raw_reasoning_effort)
     unsupported_reasoning_models = _to_set(
         _resolve_toml_value(
             overrides,
@@ -467,13 +469,19 @@ def get_refine_config():
     }
 
 
-def get_litellm_config(overrides=None):
+def get_llm_api_config(overrides=None):
     model_config = get_model_config(overrides)
-    proxy_url = _resolve_toml_value(
-        overrides, "litellm_proxy_url", "litellm", "proxy_url"
-    )
-    base_url = _resolve_toml_value(overrides, "litellm_base_url", "litellm", "base_url")
-    api_key = _resolve_toml_value(overrides, "litellm_api_key", "litellm", "api_key")
+    proxy_url = _resolve_toml_value(overrides, "llm_api_proxy_url", "llm_api", "proxy_url")
+    base_url = _resolve_toml_value(overrides, "llm_api_base_url", "llm_api", "base_url")
+    api_key = _resolve_toml_value(overrides, "llm_api_key", "llm_api", "api_key")
+
+    if not base_url:
+        base_url = os.getenv("LLM_API_BASE_URL")
+    if not proxy_url:
+        proxy_url = os.getenv("LLM_API_PROXY_URL")
+    if not api_key:
+        api_key = os.getenv("LLM_API_KEY")
+
     reasoning_effort = model_config.get("reasoning_effort")
 
     proxies = None
@@ -494,12 +502,12 @@ def get_litellm_config(overrides=None):
         ),
         "proxies": proxies,
         "chat_completions_path": _config_value(
-            "litellm", "chat_completions_path", "/chat/completions"
+            "llm_api", "chat_completions_path", "/chat/completions"
         ),
-        "responses_path": _config_value("litellm", "responses_path", "/responses"),
-        "files_path": _config_value("litellm", "files_path", "/files"),
+        "responses_path": _config_value("llm_api", "responses_path", "/responses"),
+        "files_path": _config_value("llm_api", "files_path", "/files"),
         "fine_tuning_jobs_path": _config_value(
-            "litellm", "fine_tuning_jobs_path", "/fine_tuning/jobs"
+            "llm_api", "fine_tuning_jobs_path", "/fine_tuning/jobs"
         ),
     }
 
@@ -522,6 +530,14 @@ def get_oauth2_config():
             or os.getenv("osd_build_user_secret_key")
         )
 
+    llm_api_scope = _config_value_from_sections(
+        ("oauth2", "oauth"),
+        "llm_api_scope",
+        "generate_code/openid generate_code/use",
+    )
+    if not llm_api_scope:
+        llm_api_scope = os.getenv("OAUTH2_TOKEN_LLM_API_SCOPE") or "generate_code/openid generate_code/use"
+
     return {
         "token_url": _config_value_from_sections(("oauth2", "oauth"), "token_url"),
         "user_id": user_id,
@@ -535,9 +551,5 @@ def get_oauth2_config():
             ),
             default=60,
         ),
-        "litellm_scope": _config_value_from_sections(
-            ("oauth2", "oauth"),
-            "litellm_scope",
-            "generate_code/openid generate_code/use",
-        ),
+        "llm_api_scope": llm_api_scope,
     }

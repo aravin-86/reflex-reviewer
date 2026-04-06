@@ -71,13 +71,38 @@
   - `JUDGE_MODEL` as precision/quality gate that filters and rewrites final payload before posting.
 - Distill/refine flows and pipeline wrappers now consume `--draft-model` / `DRAFT_MODEL` naming for consistency.
 - Build Pipeline review preflight now requires `JUDGE_MODEL` in addition to `DRAFT_MODEL`.
+- Build Pipeline runtime preflight now requires `LLM_API_BASE_URL` for all step scripts (`review` / `distill` / `refine`) to match runtime client requirements.
+- Build Pipeline step-script usage/help text now explicitly documents:
+  - `LLM_API_BASE_URL` as required,
+  - `LLM_API_PROXY_URL` as optional.
+- README and `.env.example` Build Pipeline/environment docs now align with runtime behavior:
+  - `LLM_API_BASE_URL` documented as required for all flows,
+  - `LLM_API_PROXY_URL` documented as optional networking override.
 - Removed obsolete provider-specific pipeline example assets and cleaned corresponding repository/doc references.
 - README now clearly states VCS support status in prominent/limitations/future sections:
   - current support: **Bitbucket Data Center only**,
   - next target: **GitHub support**.
-- LiteLLM client request logs now include a safe, best-effort context-window token estimate for both Chat Completions and Responses API calls.
+- Bitbucket VCS client naming is now aligned to product terminology:
+  - module renamed from `reflex_reviewer/vcs/bitbucket_vcs.py` to `reflex_reviewer/vcs/bitbucket_data_center.py`,
+  - class renamed from `BitbucketVCSClient` to `BitbucketDataCenterClient`,
+  - VCS factory and unit tests updated to use new module/class names.
+- VCS protocol module naming is now aligned to interface symbol naming:
+  - module renamed from `reflex_reviewer/vcs/vcs_interface.py` to `reflex_reviewer/vcs/vcs_client.py`,
+  - `BitbucketDataCenterClient` now explicitly implements `VCSClient`,
+  - `post_comment` signature now matches protocol typing (`anchor: Optional[dict] = None`).
+- VCS client contract enforcement is now strict at runtime/class-construction time:
+  - `VCSClient` changed from `typing.Protocol` to `abc.ABC` with `@abstractmethod` on all required methods,
+  - incomplete subclasses cannot be instantiated,
+  - `BitbucketDataCenterClient` remains a valid concrete implementation.
+- Added contract enforcement unit coverage in `tests/test_bitbucket_data_center.py`:
+  - verifies `BitbucketDataCenterClient` is an instance of `VCSClient`,
+  - verifies an intentionally incomplete `VCSClient` subclass raises `TypeError` on instantiation.
+- LLM API client request logs now include a safe, best-effort context-window token estimate for both Chat Completions and Responses API calls.
 - Context-window token estimate uses a lightweight character-based heuristic (~4 chars/token) and avoids logging raw prompt/input payloads.
 - Removed explicit `certifi` pin from `requirements.txt`; runtime dependency set now relies on Python/requests default certificate handling without a direct project-level certifi requirement.
+- Removed legacy provider-specific client shim file from `reflex_reviewer/` and kept only `reflex_reviewer/llm_api_client.py` as the runtime client module.
+- Removed old provider-compatibility config aliases/fallbacks from `reflex_reviewer/config.py` so runtime/env/TOML resolution is now strictly `llm_api` scoped.
+- Updated sample/test endpoint strings to provider-neutral naming and revalidated with targeted tests in repo venv.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

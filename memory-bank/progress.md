@@ -17,7 +17,7 @@
 - Distillation flow to extract preference signals from PR feedback threads.
 - Distillation batched sentiment payload now carries normalized bot-comment severity metadata.
 - Refinement flow to run DPO-style training cycles from generated datasets.
-- Bitbucket VCS integration and LiteLLM/OAuth2-based model access infrastructure.
+- Bitbucket VCS integration and LLM API/OAuth2-based model access infrastructure.
 - Build Pipeline shell wrappers to run from build pipeline steps:
   - `review-step.sh` on PR open/update,
   - `distill-step.sh` on post-merge events,
@@ -47,6 +47,73 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Aligned Build Pipeline env preflight/docs with LLM API runtime requirements:
+  - updated `scripts/build-pipeline/common.sh`:
+    - `rr_require_runtime_env(...)` now requires `LLM_API_BASE_URL` for all step scripts.
+  - updated step-script usage/help text:
+    - `scripts/build-pipeline/review-step.sh`
+    - `scripts/build-pipeline/distill-step.sh`
+    - `scripts/build-pipeline/refine-step.sh`
+    - each now lists `LLM_API_BASE_URL` as required and `LLM_API_PROXY_URL` as optional.
+  - updated docs/examples:
+    - `README.md` Build Pipeline required env section now includes `LLM_API_BASE_URL` and optional `LLM_API_PROXY_URL`.
+    - `.env.example` now includes `LLM_API_PROXY_URL` and clarifies required/optional LLM API endpoint/proxy usage.
+- Verification notes:
+  - pending shell syntax validation for modified pipeline scripts.
+
+- Removed legacy LiteLLM compatibility artifacts for a hard provider-agnostic cleanup:
+  - deleted `reflex_reviewer/litellm_client.py` shim.
+  - removed legacy config aliases/fallbacks from `reflex_reviewer/config.py`:
+    - removed `get_litellm_config(...)` and `_normalize_litellm_reasoning_effort(...)`.
+    - removed fallback parsing for legacy `LITELLM_*`, `litellm_*`, and `litellm_scope` config/env keys.
+    - runtime config resolution is now strictly `llm_api` scoped.
+  - updated sample/test wording to remove remaining LiteLLM naming in tracked files:
+    - `.env.example` (`LLM_API_BASE_URL=https://llm-api.example.com`)
+    - `tests/test_config_runtime_overrides.py`
+    - `tests/test_llm_api_client.py`
+- Verification notes:
+  - `git grep -n -i litellm` -> no matches in tracked files.
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m pytest -q tests/test_config_runtime_overrides.py tests/test_llm_api_client.py`
+  - Result: `36 passed`.
+
+- Enforced strict VCS client contract implementation requirements:
+  - `reflex_reviewer/vcs/vcs_client.py` migrated from `typing.Protocol` to `abc.ABC`.
+  - Added `@abstractmethod` for all required VCS operations (`fetch_pr_diff`, `fetch_pr_metadata`, `fetch_pr_activities`, `post_comment`, `update_comment`, `delete_comment`, `get_vcs_config`).
+  - This now guarantees incomplete subclasses cannot be instantiated.
+- Updated unit tests in `tests/test_bitbucket_data_center.py`:
+  - Added `VCSClientContractEnforcementTests` to verify `BitbucketDataCenterClient` satisfies the abstract contract.
+  - Added negative coverage verifying an intentionally incomplete `VCSClient` subclass raises `TypeError` when instantiated.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_bitbucket_data_center`
+  - Result: `Ran 9 tests ... OK`.
+
+- Updated VCS interface naming and explicit protocol implementation:
+  - `reflex_reviewer/vcs/vcs_interface.py` -> `reflex_reviewer/vcs/vcs_client.py`
+  - `reflex_reviewer/vcs/bitbucket_data_center.py` now imports `VCSClient` from `vcs_client.py`
+  - `BitbucketDataCenterClient` now explicitly implements `VCSClient`
+  - `post_comment` typing aligned to protocol (`anchor: Optional[dict] = None`)
+- Updated docs/memory-bank references:
+  - `README.md` VCS subpackage listing now points to `reflex_reviewer/vcs/vcs_client.py`
+  - `memory-bank/systemPatterns.md` includes `vcs_client.py` responsibility
+  - `memory-bank/activeContext.md` captures the interface-module rename and explicit implementation
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_bitbucket_data_center`
+  - `python3 -m compileall reflex_reviewer/vcs/bitbucket_data_center.py reflex_reviewer/vcs/vcs_client.py reflex_reviewer/vcs/__init__.py tests/test_bitbucket_data_center.py`
+  - Repository-owned references scan confirms no remaining `vcs_interface` matches under `reflex_reviewer/`, `tests/`, `README.md`, and `memory-bank/`.
+
+- Renamed Bitbucket client module/class to align with Bitbucket Data Center naming:
+  - `reflex_reviewer/vcs/bitbucket_vcs.py` -> `reflex_reviewer/vcs/bitbucket_data_center.py`
+  - `BitbucketVCSClient` -> `BitbucketDataCenterClient`
+- Updated references to the renamed module/class:
+  - `reflex_reviewer/vcs/__init__.py`
+  - `README.md`
+  - `tests/test_bitbucket_data_center.py` (renamed from `tests/test_bitbucket_vcs.py`)
+  - `memory-bank/systemPatterns.md`
+  - `memory-bank/activeContext.md`
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_bitbucket_data_center`
+  - Result: `Ran 7 tests ... OK`.
+
 - Updated judge-stage prompts to implement explicit factual verification / hallucination filtering in review flow:
   - `reflex_reviewer/prompts/judge_review_system_prompt.md`
     - draft review is treated as untrusted until validated,
@@ -108,18 +175,18 @@
 - Verification notes:
   - `bash -n scripts/build-pipeline/common.sh scripts/build-pipeline/review-step.sh scripts/build-pipeline/distill-step.sh scripts/build-pipeline/refine-step.sh scripts/build-pipeline/setup-pipeline-runtime.sh` passes.
 
-- Updated `reflex_reviewer/litellm_client.py`:
+- Updated `reflex_reviewer/llm_api_client.py`:
   - Added safe helper functions to estimate context-window token size from request payload text without logging raw content.
   - Added `context_window_size_tokens_estimate` to request logs for:
     - `chat_completions()`
     - `responses()` (both reasoning and non-reasoning log branches)
   - Kept estimation lightweight via character-length heuristic (~4 chars/token) to avoid new tokenizer dependencies.
-- Updated `tests/test_litellm_client.py`:
+- Updated `tests/test_llm_api_client.py`:
   - Extended existing response logging tests to assert `context_window_size_tokens_estimate` is present.
   - Added coverage for chat-completions logging path to assert `context_window_size_tokens_estimate` is present.
 - Verification notes:
-  - `python3 -m unittest discover -s tests -p 'test_litellm_client.py'` fails in this environment due to missing dependency: `requests`.
-  - `python3 -m compileall reflex_reviewer/litellm_client.py tests/test_litellm_client.py` passes.
+  - `python3 -m unittest discover -s tests -p 'test_llm_api_client.py'` fails in this environment due to missing dependency: `requests`.
+  - `python3 -m compileall reflex_reviewer/llm_api_client.py tests/test_llm_api_client.py` passes.
 
 - Updated `README.md` to clearly communicate VCS support status:
   - Added a prominent top-level note: current support is **Bitbucket Data Center only**.

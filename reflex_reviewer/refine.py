@@ -10,7 +10,7 @@ from tenacity import (  # type: ignore[reportMissingImports]
     wait_exponential,
     retry_if_exception_type,
 )
-from .litellm_client import (
+from .llm_api_client import (
     upload_file,
     create_fine_tune_job,
     retrieve_fine_tune_job_status,
@@ -100,10 +100,10 @@ def _build_runtime_overrides(
     vcs_project_key=None,
     vcs_repo_slug=None,
     vcs_token=None,
-    litellm_base_url=None,
-    litellm_proxy_url=None,
-    litellm_api_key=None,
-    litellm_reasoning_effort=None,
+    llm_api_base_url=None,
+    llm_api_proxy_url=None,
+    llm_api_key=None,
+    llm_api_reasoning_effort=None,
 ):
     return {
         "team_name": team_name,
@@ -114,10 +114,10 @@ def _build_runtime_overrides(
         "vcs_project_key": vcs_project_key,
         "vcs_repo_slug": vcs_repo_slug,
         "vcs_token": vcs_token,
-        "litellm_base_url": litellm_base_url,
-        "litellm_proxy_url": litellm_proxy_url,
-        "litellm_api_key": litellm_api_key,
-        "litellm_reasoning_effort": litellm_reasoning_effort,
+        "llm_api_base_url": llm_api_base_url,
+        "llm_api_proxy_url": llm_api_proxy_url,
+        "llm_api_key": llm_api_key,
+        "llm_api_reasoning_effort": llm_api_reasoning_effort,
     }
 
 
@@ -190,10 +190,10 @@ def run(
     vcs_project_key=None,
     vcs_repo_slug=None,
     vcs_token=None,
-    litellm_base_url=None,
-    litellm_proxy_url=None,
-    litellm_api_key=None,
-    litellm_reasoning_effort=None,
+    llm_api_base_url=None,
+    llm_api_proxy_url=None,
+    llm_api_key=None,
+    llm_api_reasoning_effort=None,
 ):
     runtime_overrides = _build_runtime_overrides(
         team_name=team_name,
@@ -204,10 +204,10 @@ def run(
         vcs_project_key=vcs_project_key,
         vcs_repo_slug=vcs_repo_slug,
         vcs_token=vcs_token,
-        litellm_base_url=litellm_base_url,
-        litellm_proxy_url=litellm_proxy_url,
-        litellm_api_key=litellm_api_key,
-        litellm_reasoning_effort=litellm_reasoning_effort,
+        llm_api_base_url=llm_api_base_url,
+        llm_api_proxy_url=llm_api_proxy_url,
+        llm_api_key=llm_api_key,
+        llm_api_reasoning_effort=llm_api_reasoning_effort,
     )
     set_runtime_overrides(runtime_overrides)
 
@@ -322,12 +322,12 @@ if __name__ == "__main__":
     parser.add_argument("--vcs-project-key", help="Override VCS_PROJECT_KEY")
     parser.add_argument("--vcs-repo-slug", help="Override VCS_REPO_SLUG")
     parser.add_argument("--vcs-token", help="Override VCS_TOKEN")
-    parser.add_argument("--litellm-base-url", help="Override LITELLM_BASE_URL")
-    parser.add_argument("--litellm-proxy-url", help="Override LITELLM_PROXY_URL")
-    parser.add_argument("--litellm-api-key", help="Override LITELLM_API_KEY")
+    parser.add_argument("--llm-api-base-url", help="Override LLM_API_BASE_URL")
+    parser.add_argument("--llm-api-proxy-url", help="Override LLM_API_PROXY_URL")
+    parser.add_argument("--llm-api-key", help="Override LLM_API_KEY")
     parser.add_argument(
-        "--litellm-reasoning-effort",
-        help="LiteLLM reasoning effort: low|medium|high (defaults to env or high)",
+        "--llm-api-reasoning-effort",
+        help="LLM API reasoning effort: low|medium|high (defaults to env or high)",
     )
     args = parser.parse_args()
     run(
@@ -339,8 +339,8 @@ if __name__ == "__main__":
         vcs_project_key=args.vcs_project_key,
         vcs_repo_slug=args.vcs_repo_slug,
         vcs_token=args.vcs_token,
-        litellm_base_url=args.litellm_base_url,
-        litellm_proxy_url=args.litellm_proxy_url,
-        litellm_api_key=args.litellm_api_key,
-        litellm_reasoning_effort=args.litellm_reasoning_effort,
+        llm_api_base_url=args.llm_api_base_url,
+        llm_api_proxy_url=args.llm_api_proxy_url,
+        llm_api_key=args.llm_api_key,
+        llm_api_reasoning_effort=args.llm_api_reasoning_effort,
     )

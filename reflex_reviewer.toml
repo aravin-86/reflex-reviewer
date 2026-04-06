@@ -10,10 +10,10 @@ repo_slug = "${VCS_REPO_SLUG}"
 pr_id = "${VCS_PR_ID}"
 token = "${VCS_TOKEN}"
 
-[litellm]
-base_url = "${LITELLM_BASE_URL}"
-proxy_url = "${LITELLM_PROXY_URL}"
-api_key = "${LITELLM_API_KEY}"
+[llm_api]
+base_url = "${LLM_API_BASE_URL}"
+proxy_url = "${LLM_API_PROXY_URL}"
+api_key = "${LLM_API_KEY}"
 chat_completions_path = "/chat/completions"
 responses_path = "/responses"
 files_path = "/files"
@@ -26,7 +26,7 @@ stream_response = "${STREAM_RESPONSE|-false}"
 # Supported endpoints: chat_completions (stateless default) or responses
 # (stateful; use only if your org/backend supports previous_response_id flows).
 model_endpoint = "${MODEL_ENDPOINT|-chat_completions}"
-reasoning_effort = "${LITELLM_REASONING_EFFORT|-high}"
+reasoning_effort = "${LLM_API_REASONING_EFFORT|-high}"
 unsupported_reasoning_models = ["gpt-4.1"]
 
 [oauth]
@@ -34,7 +34,7 @@ token_url = "${OAUTH2_TOKEN_URL}"
 user_id = "${OAUTH2_USER_ID}"
 user_secret = "${OAUTH2_USER_SECRET}"
 refresh_buffer_seconds = "${OAUTH2_REFRESH_BUFFER_SECONDS|-60}"
-litellm_scope = "${OAUTH2_TOKEN_LITELLM_SCOPE|-generate_code/openid generate_code/use}"
+llm_api_scope = "${OAUTH2_TOKEN_LLM_API_SCOPE|-generate_code/openid generate_code/use}"
 token_cache_file = "data/.user_oauth2_token_cache.json"
 
 [review]

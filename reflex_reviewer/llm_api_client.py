@@ -11,7 +11,7 @@ from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleS
     wait_exponential,
 )
 
-from .config import get_litellm_config
+from .config import get_llm_api_config
 from .oauth2 import get_oauth2_token, REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -29,49 +29,49 @@ def _normalize_api_path(path_value, default_path):
     return normalized_path
 
 
-def _get_litellm_runtime_config():
-    litellm_config = get_litellm_config()
-    base_url = litellm_config.get("base_url")
+def _get_llm_api_runtime_config():
+    llm_api_config = get_llm_api_config()
+    base_url = llm_api_config.get("base_url")
     if not base_url:
         raise ValueError(
-            "LITELLM_BASE_URL is required. Pass --litellm-base-url or set LITELLM_BASE_URL."
+            "LLM_API_BASE_URL is required. Pass --llm-api-base-url or set LLM_API_BASE_URL."
         )
 
     return {
         "base_url": base_url.rstrip("/"),
-        "api_key": litellm_config.get("api_key"),
-        "proxies": litellm_config.get("proxies"),
-        "reasoning_effort": litellm_config.get("reasoning_effort", "high"),
+        "api_key": llm_api_config.get("api_key"),
+        "proxies": llm_api_config.get("proxies"),
+        "reasoning_effort": llm_api_config.get("reasoning_effort", "high"),
         "chat_completions_path": _normalize_api_path(
-            litellm_config.get("chat_completions_path"),
+            llm_api_config.get("chat_completions_path"),
             "/chat/completions",
         ),
         "responses_path": _normalize_api_path(
-            litellm_config.get("responses_path"),
+            llm_api_config.get("responses_path"),
             "/responses",
         ),
         "files_path": _normalize_api_path(
-            litellm_config.get("files_path"),
+            llm_api_config.get("files_path"),
             "/files",
         ),
         "fine_tuning_jobs_path": _normalize_api_path(
-            litellm_config.get("fine_tuning_jobs_path"),
+            llm_api_config.get("fine_tuning_jobs_path"),
             "/fine_tuning/jobs",
         ),
     }
 
 
-class LiteLLMResponseParseError(ValueError):
-    """Raised when a successful LiteLLM response cannot be parsed as expected."""
+class LLMAPIResponseParseError(ValueError):
+    """Raised when a successful LLM API response cannot be parsed as expected."""
 
 
-def _resolve_litellm_auth_token(runtime_config):
+def _resolve_llm_api_auth_token(runtime_config):
     api_key = str(runtime_config.get("api_key") or "").strip()
     if api_key:
-        logger.info("Using LiteLLM API key authentication")
+        logger.info("Using LLM API key authentication")
         return api_key
 
-    logger.info("Using LiteLLM OAuth2 token authentication")
+    logger.info("Using LLM API OAuth2 token authentication")
     return get_oauth2_token()
 
 
@@ -102,7 +102,7 @@ def _supports_reasoning_effort(model):
     if not normalized_model:
         return False
 
-    unsupported_reasoning_models = get_litellm_config().get(
+    unsupported_reasoning_models = get_llm_api_config().get(
         "unsupported_reasoning_models", set()
     )
     return not any(
@@ -424,7 +424,7 @@ def _convert_sse_events_to_response_object(events):
 def _parse_non_stream_responses_api_response(response_text):
     response_text = str(response_text or "").strip()
     if not response_text:
-        raise ValueError("LiteLLM responses payload is empty")
+        raise ValueError("LLM API responses payload is empty")
 
     try:
         parsed_json = json.loads(response_text)
@@ -438,21 +438,21 @@ def _parse_non_stream_responses_api_response(response_text):
 
 
 def chat_completions(model, messages, stream=False, pr_id=None):
-    """Call LiteLLM Chat Completions API.
+    """Call LLM API Chat Completions API.
 
     This endpoint is best suited for single-turn style interactions.
     It is stateless in practice: callers must provide the full conversation
     history in `messages` on every request.
     """
-    runtime_config = _get_litellm_runtime_config()
-    token = _resolve_litellm_auth_token(runtime_config)
+    runtime_config = _get_llm_api_runtime_config()
+    token = _resolve_llm_api_auth_token(runtime_config)
     payload = {"model": model, "messages": messages}
     message_count = len(messages) if isinstance(messages, list) else 0
     context_window_size_tokens_estimate = _estimate_context_window_tokens(messages)
 
     accept_header = "text/event-stream"
     logger.info(
-        "Calling LiteLLM chat completion: model=%s, stream=%s, message_count=%s, context_window_size_tokens_estimate=%s, proxies_enabled=%s",
+        "Calling LLM API chat completion: model=%s, stream=%s, message_count=%s, context_window_size_tokens_estimate=%s, proxies_enabled=%s",
         model,
         stream,
         message_count,
@@ -472,12 +472,12 @@ def chat_completions(model, messages, stream=False, pr_id=None):
             proxies=runtime_config["proxies"],
         )
         logger.info(
-            "Received LiteLLM chat completion successfully. model=%s pr_id=%s",
+            "Received LLM API chat completion successfully. model=%s pr_id=%s",
             model,
             pr_id,
         )
     except requests.exceptions.RequestException:
-        logger.exception("LiteLLM chat completion request failed")
+        logger.exception("LLM API chat completion request failed")
         raise
 
     if stream:
@@ -487,14 +487,14 @@ def chat_completions(model, messages, stream=False, pr_id=None):
         return _parse_non_stream_chat_completion_response(response.text)
     except ValueError as exc:
         logger.warning(
-            "LiteLLM chat completion returned unparsable event-stream response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
+            "LLM API chat completion returned unparsable event-stream response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
             response.status_code,
             response.headers.get("Content-Type", "unknown"),
             _safe_response_preview(response.text),
             str(exc),
         )
-        raise LiteLLMResponseParseError(
-            "LiteLLM chat completion returned unparsable event-stream response"
+        raise LLMAPIResponseParseError(
+            "LLM API chat completion returned unparsable event-stream response"
         ) from exc
 
 
@@ -506,16 +506,16 @@ def responses(
     stream=False,
     pr_id=None,
 ):
-    """Call LiteLLM Responses API.
+    """Call LLM API Responses API.
 
     This endpoint is designed as an agentic primitive and is suitable for
     multi-turn workflows (including tool-calling patterns) within a single
     response flow. It can be stateful by default: pass
     `previous_response_id` to let the API continue prior response/tool state.
-    It also sends a default `reasoning.effort` value from LiteLLM config.
+    It also sends a default `reasoning.effort` value from LLM API config.
     """
-    runtime_config = _get_litellm_runtime_config()
-    token = _resolve_litellm_auth_token(runtime_config)
+    runtime_config = _get_llm_api_runtime_config()
+    token = _resolve_llm_api_auth_token(runtime_config)
     reasoning_effort = runtime_config["reasoning_effort"]
     applied_reasoning_effort = None
     payload = {
@@ -543,7 +543,7 @@ def responses(
     accept_header = "application/json, text/event-stream"
     if applied_reasoning_effort is not None:
         logger.info(
-            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, reasoning_effort=%s",
+            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, reasoning_effort=%s",
             model,
             stream,
             bool(previous_response_id),
@@ -553,7 +553,7 @@ def responses(
         )
     else:
         logger.info(
-            "Calling LiteLLM responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s",
+            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s",
             model,
             stream,
             bool(previous_response_id),
@@ -574,12 +574,12 @@ def responses(
             proxies=runtime_config["proxies"],
         )
         logger.info(
-            "Received LiteLLM responses API response successfully. model=%s pr_id=%s",
+            "Received LLM API responses API response successfully. model=%s pr_id=%s",
             model,
             pr_id,
         )
     except requests.exceptions.RequestException:
-        logger.exception("LiteLLM responses API request failed")
+        logger.exception("LLM API responses API request failed")
         raise
 
     if stream:
@@ -593,22 +593,22 @@ def responses(
         return parsed_response
     except ValueError as exc:
         logger.warning(
-            "LiteLLM responses API returned unparsable response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
+            "LLM API responses API returned unparsable response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
             response.status_code,
             response.headers.get("Content-Type", "unknown"),
             _safe_response_preview(response.text),
             str(exc),
         )
-        raise LiteLLMResponseParseError(
-            "LiteLLM responses API returned unparsable response"
+        raise LLMAPIResponseParseError(
+            "LLM API responses API returned unparsable response"
         ) from exc
 
 
 def upload_file(file_path, purpose="fine-tune"):
-    runtime_config = _get_litellm_runtime_config()
-    token = _resolve_litellm_auth_token(runtime_config)
+    runtime_config = _get_llm_api_runtime_config()
+    token = _resolve_llm_api_auth_token(runtime_config)
     logger.info(
-        "Uploading file to LiteLLM: file_name=%s, purpose=%s",
+        "Uploading file to LLM API: file_name=%s, purpose=%s",
         os.path.basename(file_path),
         purpose,
     )
@@ -624,7 +624,7 @@ def upload_file(file_path, purpose="fine-tune"):
             )
         except requests.exceptions.RequestException:
             logger.exception(
-                "LiteLLM file upload failed. file_name=%s purpose=%s",
+                "LLM API file upload failed. file_name=%s purpose=%s",
                 os.path.basename(file_path),
                 purpose,
             )
@@ -636,8 +636,8 @@ def upload_file(file_path, purpose="fine-tune"):
 def create_fine_tune_job(
     training_file_id, validation_file_id, model, method="dpo", suffix=""
 ):
-    runtime_config = _get_litellm_runtime_config()
-    token = _resolve_litellm_auth_token(runtime_config)
+    runtime_config = _get_llm_api_runtime_config()
+    token = _resolve_llm_api_auth_token(runtime_config)
     payload = {
         "training_file": training_file_id,
         "validation_file": validation_file_id,
@@ -648,7 +648,7 @@ def create_fine_tune_job(
         payload["suffix"] = suffix
 
     logger.info(
-        "Creating LiteLLM fine-tune job: model=%s, method=%s, training_file_id=%s, validation_file_id=%s",
+        "Creating LLM API fine-tune job: model=%s, method=%s, training_file_id=%s, validation_file_id=%s",
         model,
         method,
         training_file_id,
@@ -666,7 +666,7 @@ def create_fine_tune_job(
         )
     except requests.exceptions.RequestException:
         logger.exception(
-            "LiteLLM fine-tune job creation failed. model=%s method=%s", model, method
+            "LLM API fine-tune job creation failed. model=%s method=%s", model, method
         )
         raise
 
@@ -674,8 +674,8 @@ def create_fine_tune_job(
 
 
 def retrieve_fine_tune_job_status(job_id):
-    runtime_config = _get_litellm_runtime_config()
-    token = _resolve_litellm_auth_token(runtime_config)
+    runtime_config = _get_llm_api_runtime_config()
+    token = _resolve_llm_api_auth_token(runtime_config)
     fine_tuning_jobs_path = runtime_config["fine_tuning_jobs_path"].rstrip("/")
     try:
         response = _get_with_retry(
@@ -685,7 +685,7 @@ def retrieve_fine_tune_job_status(job_id):
         )
     except requests.exceptions.RequestException:
         logger.exception(
-            "LiteLLM fine-tune job status retrieval failed. job_id=%s", job_id
+            "LLM API fine-tune job status retrieval failed. job_id=%s", job_id
         )
         raise
 

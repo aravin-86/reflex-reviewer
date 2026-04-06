@@ -29,8 +29,8 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
     - [Architecture diagram](#architecture-diagram)
     - [Refinement (DPO)](#refinement-dpo)
   - [2) Reliability and retry strategy](#2-reliability-and-retry-strategy)
-    - [`reflex_reviewer/vcs/bitbucket_vcs.py`](#reflex_reviewervcsbitbucket_vcspy)
-    - [`reflex_reviewer/litellm_client.py`](#reflex_reviewerlitellm_clientpy)
+    - [`reflex_reviewer/vcs/bitbucket_data_center.py`](#reflex_reviewervcsbitbucket_data_centerpy)
+    - [`reflex_reviewer/llm_api_client.py`](#reflex_reviewerllm_api_clientpy)
   - [5) Runtime configuration (CLI)](#5-runtime-configuration-cli)
   - [6) VCS pipeline steps](#6-vcs-pipeline-steps)
     - [Build Pipeline step scripts (repository-committed)](#build-pipeline-step-scripts-repository-committed)
@@ -112,7 +112,7 @@ flowchart TB
    - Reads paginated PR activities and builds root comment threads
    - Ranks threads by reply count and selects top configured threads
    - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY`) with test-file comments coerced to `ADVISORY`
-   - Runs one batched LiteLLM classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`
+   - Runs one batched LLM API classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`
    - Appends only high-confidence preference samples (`ACCEPTED` / `REJECTED`) to the DPO dataset
 
 3. **Refinement / Training (`reflex_reviewer/refine.py`)**
@@ -141,14 +141,14 @@ For refine/fine-tuning workflows, ensure your selected model/backend supports bo
 
 ## 2) Reliability and retry strategy
 
-Both VCS and LiteLLM HTTP paths use `tenacity` with the same retry policy:
+Both VCS and LLM API HTTP paths use `tenacity` with the same retry policy:
 
 - `wait=wait_exponential(multiplier=1, min=2, max=20)`
 - `stop=stop_after_attempt(3)`
 - `retry=retry_if_exception_type(requests.exceptions.RequestException)`
 - `reraise=True`
 
-### `reflex_reviewer/vcs/bitbucket_vcs.py`
+### `reflex_reviewer/vcs/bitbucket_data_center.py`
 
 Retry-wrapped request helpers:
 - `_get_with_retry(...)`
@@ -162,20 +162,20 @@ These cover Bitbucket operations such as:
 - posting review comments,
 - updating comments.
 
-### `reflex_reviewer/litellm_client.py`
+### `reflex_reviewer/llm_api_client.py`
 
 Retry-wrapped request helpers:
 - `_post_with_retry(...)`
 - `_get_with_retry(...)`
 
-These cover LiteLLM operations such as:
+These cover LLM API operations such as:
 - chat completions,
 - responses API calls,
 - file upload,
 - fine-tune job creation,
 - fine-tune status retrieval.
 
-After retries are exhausted, request exceptions propagate to callers; response parsing failures are surfaced explicitly (`LiteLLMResponseParseError`) so callers can handle them separately.
+After retries are exhausted, request exceptions propagate to callers; response parsing failures are surfaced explicitly (`LLMAPIResponseParseError`) so callers can handle them separately.
 
 ---
 
@@ -213,12 +213,12 @@ CLI can still override model values when needed:
 Common optional CLI arguments:
 - `--pr-id` (review/distill)
 - `--vcs-type` (review/distill)
-- runtime override flags for VCS and LiteLLM endpoints/credentials (for example: `--vcs-base-url`, `--litellm-base-url`, `--litellm-api-key`)
+- runtime override flags for VCS and LLM API endpoints/credentials (for example: `--vcs-base-url`, `--llm-api-base-url`, `--llm-api-key`)
 
-LiteLLM auth behavior:
-- If `LITELLM_API_KEY` (or CLI `--litellm-api-key`) is set, LiteLLM requests use that API key.
-- If no API key is provided, LiteLLM requests fall back to OAuth2 token auth.
-- CLI `--litellm-api-key` takes precedence over env/TOML configuration.
+LLM API auth behavior:
+- If `LLM_API_KEY` (or CLI `--llm-api-key`) is set, LLM API requests use that API key.
+- If no API key is provided, LLM API requests fall back to OAuth2 token auth.
+- CLI `--llm-api-key` takes precedence over env/TOML configuration.
 
 For all environment variables, default values, and env interpolation behavior, refer to **`reflex_reviewer.toml`**.
 
@@ -278,15 +278,16 @@ Required environment variables:
 - `TEAM_NAME`
 - `DRAFT_MODEL` (required by all flows; in review it generates the draft payload)
 - `JUDGE_MODEL` (required by `review-step.sh`; verifies evidence and finalizes draft into review payload)
+- `LLM_API_BASE_URL`
 - `VCS_BASE_URL`
 - `VCS_PROJECT_KEY`
 - `VCS_REPO_SLUG`
 - `VCS_TOKEN`
 - `DPO_TRAINING_DATA_DIR` (required by `distill-step.sh` and `refine-step.sh`)
 
-LiteLLM auth configuration (choose one):
+LLM API auth configuration (choose one):
 
-- `LITELLM_API_KEY`, or
+- `LLM_API_KEY`, or
 - `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
 
 Required for setup step only:
@@ -295,6 +296,7 @@ Required for setup step only:
 
 Optional:
 
+- `LLM_API_PROXY_URL` (optional proxy for outbound LLM API calls)
 - `RR_REPOSITORY_DIR` (prepared checkout dir from setup script; defaults to `<cwd>/.reflex-reviewer-clone`)
 - `RR_REPOSITORY_REF` (optional branch/tag for setup clone via `git clone --branch`)
 - `PYTHON_BIN` (optional explicit interpreter override)
@@ -442,8 +444,8 @@ Core components:
 - **`reflex_reviewer/refine.py` — Optimizer**: runs DPO fine-tuning from distilled data.
 
 VCS implementation subpackage:
-- `reflex_reviewer/vcs/bitbucket_vcs.py`
-- `reflex_reviewer/vcs/vcs_interface.py`
+- `reflex_reviewer/vcs/bitbucket_data_center.py`
+- `reflex_reviewer/vcs/vcs_client.py`
 
 ---
 
@@ -539,12 +541,13 @@ cp reflex-reviewer/.env.example .env
 Then update `.env` with your runtime values:
 
 - VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
-- LiteLLM endpoint/model: `LITELLM_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
+- LLM API endpoint/model: `LLM_API_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
+- Optional LLM API networking: `LLM_API_PROXY_URL`.
 - Judge model (review flow): `JUDGE_MODEL` (evidence-backed verification + final curation/rewrite before posting).
 - Auth (choose one):
-  - Set `LITELLM_API_KEY`, **or**
-  - Leave `LITELLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
-- Optional runtime toggles: `STREAM_RESPONSE`, `MODEL_ENDPOINT`, `LITELLM_REASONING_EFFORT`.
+  - Set `LLM_API_KEY`, **or**
+  - Leave `LLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
+- Optional runtime toggles: `STREAM_RESPONSE`, `MODEL_ENDPOINT`, `LLM_API_REASONING_EFFORT`.
 
 If your shell/pipeline does not auto-load `.env`, export it before running commands:
 

@@ -9,6 +9,7 @@ from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleS
 )
 
 from reflex_reviewer.oauth2 import get_oauth2_token
+from .vcs_client import VCSClient
 
 
 REQUEST_TIMEOUT = (10, 60)
@@ -17,7 +18,7 @@ RETRYABLE_ERRORS = (requests.exceptions.RequestException,)
 logger = logging.getLogger(__name__)
 
 
-class BitbucketVCSClient:
+class BitbucketDataCenterClient(VCSClient):
     def __init__(self, config: dict):
         self._config = config
         self._base_url = config["base_url"]
@@ -159,8 +160,10 @@ class BitbucketVCSClient:
 
         return activities
 
-    def post_comment(self, pr_id: str, text: str, anchor=None) -> dict:
-        payload = {"text": text}
+    def post_comment(
+        self, pr_id: str, text: str, anchor: Optional[dict] = None
+    ) -> dict:
+        payload: dict[str, object] = {"text": text}
         if anchor:
             payload["anchor"] = anchor
 

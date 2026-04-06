@@ -6,9 +6,9 @@ from unittest.mock import Mock, patch
 import requests
 from tenacity import wait_none  # type: ignore[reportMissingImports,reportMissingModuleSource]
 
-import reflex_reviewer.litellm_client as litellm_client_module
-from reflex_reviewer.litellm_client import (
-    LiteLLMResponseParseError,
+import reflex_reviewer.llm_api_client as llm_api_client_module
+from reflex_reviewer.llm_api_client import (
+    LLMAPIResponseParseError,
     responses,
     chat_completions,
     upload_file,
@@ -32,28 +32,28 @@ def _mock_response(
     return response
 
 
-class LiteLLMClientTests(unittest.TestCase):
+class LLMAPIClientTests(unittest.TestCase):
     def setUp(self):
-        self._litellm_config_patcher = patch(
-            "reflex_reviewer.litellm_client.get_litellm_config",
+        self._llm_api_config_patcher = patch(
+            "reflex_reviewer.llm_api_client.get_llm_api_config",
             return_value={
-                "base_url": "https://litellm.example.test",
+                "base_url": "https://llm-api.example.test",
                 "api_key": None,
                 "proxies": None,
                 "reasoning_effort": "high",
                 "unsupported_reasoning_models": {"gpt-4.1"},
             },
         )
-        self._litellm_config_patcher.start()
+        self._llm_api_config_patcher.start()
         self._disable_retry_backoff()
 
     def tearDown(self):
-        self._litellm_config_patcher.stop()
+        self._llm_api_config_patcher.stop()
 
     def _disable_retry_backoff(self):
         for operation in (
-            litellm_client_module._post_with_retry,
-            litellm_client_module._get_with_retry,
+            llm_api_client_module._post_with_retry,
+            llm_api_client_module._get_with_retry,
         ):
             retrying = getattr(operation, "retry", None)
             if not retrying:
@@ -61,8 +61,8 @@ class LiteLLMClientTests(unittest.TestCase):
             retrying.wait = wait_none()
             retrying.sleep = lambda _: None
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_parses_single_sse_payload_with_message(
         self, mock_post, _mock_token
     ):
@@ -104,8 +104,8 @@ class LiteLLMClientTests(unittest.TestCase):
         )
         mock_post.assert_called_once()
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_reconstructs_message_from_chunked_sse_payload(
         self, mock_post, _mock_token
     ):
@@ -172,8 +172,8 @@ class LiteLLMClientTests(unittest.TestCase):
         )
         self.assertEqual(first_message.get("content"), '{"sentiment":"REJECTED"}')
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_raises_parse_error_when_sse_payload_is_malformed(
         self, mock_post, _mock_token
     ):
@@ -181,7 +181,7 @@ class LiteLLMClientTests(unittest.TestCase):
             text="data: not-a-json-event\n\n",
         )
 
-        with self.assertRaises(LiteLLMResponseParseError) as context:
+        with self.assertRaises(LLMAPIResponseParseError) as context:
             chat_completions(
                 model="oca/grok4-fast-reasoning",
                 messages=[{"role": "user", "content": "hello"}],
@@ -190,8 +190,8 @@ class LiteLLMClientTests(unittest.TestCase):
 
         self.assertIn("unparsable event-stream", str(context.exception))
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_retries_on_transient_error_and_succeeds(
         self, mock_post, _mock_token
     ):
@@ -234,8 +234,8 @@ class LiteLLMClientTests(unittest.TestCase):
         )
         self.assertEqual(first_message.get("content"), '{"sentiment":"ACCEPTED"}')
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_parses_json_response_and_sets_defaults(
         self, mock_post, _mock_token
     ):
@@ -275,8 +275,8 @@ class LiteLLMClientTests(unittest.TestCase):
             "application/json, text/event-stream",
         )
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_supports_previous_response_id(
         self, mock_post, _mock_token
     ):
@@ -303,8 +303,8 @@ class LiteLLMClientTests(unittest.TestCase):
         self.assertNotIn("store", sent_payload)
         self.assertEqual(sent_payload.get("reasoning", {}).get("effort"), "high")
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_supports_store_flag(self, mock_post, _mock_token):
         mock_post.return_value = _mock_response(
             content_type="application/json",
@@ -327,8 +327,8 @@ class LiteLLMClientTests(unittest.TestCase):
         sent_payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(sent_payload.get("store"), True)
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_skips_reasoning_for_gpt_4_1_models(
         self, mock_post, _mock_token
     ):
@@ -343,7 +343,7 @@ class LiteLLMClientTests(unittest.TestCase):
             ),
         )
 
-        with self.assertLogs("reflex_reviewer.litellm_client", level="INFO") as logs:
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="INFO") as logs:
             responses(
                 model="oca/gpt-4.1",
                 input_items=[{"role": "user", "content": "hello"}],
@@ -355,12 +355,12 @@ class LiteLLMClientTests(unittest.TestCase):
 
         logs_text = "\n".join(logs.output)
         self.assertIn("Skipping reasoning config for responses API model=oca/gpt-4.1", logs_text)
-        self.assertIn("Calling LiteLLM responses API: model=oca/gpt-4.1", logs_text)
+        self.assertIn("Calling LLM API responses API: model=oca/gpt-4.1", logs_text)
         self.assertIn("context_window_size_tokens_estimate=", logs_text)
         self.assertNotIn("reasoning_effort=", logs_text)
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_logs_reasoning_effort_when_applied(
         self, mock_post, _mock_token
     ):
@@ -375,7 +375,7 @@ class LiteLLMClientTests(unittest.TestCase):
             ),
         )
 
-        with self.assertLogs("reflex_reviewer.litellm_client", level="INFO") as logs:
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="INFO") as logs:
             responses(
                 model="oca/grok4-fast-reasoning",
                 input_items=[{"role": "user", "content": "hello"}],
@@ -383,12 +383,12 @@ class LiteLLMClientTests(unittest.TestCase):
             )
 
         logs_text = "\n".join(logs.output)
-        self.assertIn("Calling LiteLLM responses API: model=oca/grok4-fast-reasoning", logs_text)
+        self.assertIn("Calling LLM API responses API: model=oca/grok4-fast-reasoning", logs_text)
         self.assertIn("context_window_size_tokens_estimate=", logs_text)
         self.assertIn("reasoning_effort=high", logs_text)
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_logs_context_window_size_tokens_estimate(
         self, mock_post, _mock_token
     ):
@@ -410,7 +410,7 @@ class LiteLLMClientTests(unittest.TestCase):
         }
         mock_post.return_value = _mock_response(text=f"data: {json.dumps(payload)}\n\n")
 
-        with self.assertLogs("reflex_reviewer.litellm_client", level="INFO") as logs:
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="INFO") as logs:
             chat_completions(
                 model="oca/grok4-fast-reasoning",
                 messages=[{"role": "user", "content": "hello"}],
@@ -419,23 +419,23 @@ class LiteLLMClientTests(unittest.TestCase):
 
         logs_text = "\n".join(logs.output)
         self.assertIn(
-            "Calling LiteLLM chat completion: model=oca/grok4-fast-reasoning",
+            "Calling LLM API chat completion: model=oca/grok4-fast-reasoning",
             logs_text,
         )
         self.assertIn("context_window_size_tokens_estimate=", logs_text)
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
     @patch(
-        "reflex_reviewer.litellm_client.get_litellm_config",
+        "reflex_reviewer.llm_api_client.get_llm_api_config",
         return_value={
-            "base_url": "https://litellm.example.test",
+            "base_url": "https://llm-api.example.test",
             "api_key": None,
             "proxies": None,
             "reasoning_effort": "high",
             "unsupported_reasoning_models": {"custom-reasoning-model"},
         },
     )
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_skips_reasoning_for_configured_unsupported_models(
         self, mock_post, _mock_config, _mock_token
     ):
@@ -459,8 +459,8 @@ class LiteLLMClientTests(unittest.TestCase):
         sent_payload = mock_post.call_args.kwargs["json"]
         self.assertNotIn("reasoning", sent_payload)
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_parses_sse_response_payload(self, mock_post, _mock_token):
         sse_event = {
             "response": {
@@ -486,8 +486,8 @@ class LiteLLMClientTests(unittest.TestCase):
         self.assertEqual(result.get("id"), "resp_sse_1")
         self.assertEqual(result.get("output_text"), "sse output")
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_raises_parse_error_when_payload_is_malformed(
         self, mock_post, _mock_token
     ):
@@ -495,7 +495,7 @@ class LiteLLMClientTests(unittest.TestCase):
             text="data: not-a-json-event\n\n",
         )
 
-        with self.assertRaises(LiteLLMResponseParseError) as context:
+        with self.assertRaises(LLMAPIResponseParseError) as context:
             responses(
                 model="oca/grok4-fast-reasoning",
                 input_items=[{"role": "user", "content": "hello"}],
@@ -504,8 +504,8 @@ class LiteLLMClientTests(unittest.TestCase):
 
         self.assertIn("unparsable response", str(context.exception))
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_retries_on_transient_error_and_succeeds(
         self, mock_post, _mock_token
     ):
@@ -537,8 +537,8 @@ class LiteLLMClientTests(unittest.TestCase):
         self.assertEqual(result.get("id"), "resp_retry_1")
         self.assertEqual(result.get("output_text"), "retry-success")
 
-    @patch("reflex_reviewer.litellm_client.get_oauth2_token", return_value="token")
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_does_not_retry_on_http_400(self, mock_post, _mock_token):
         bad_request = _mock_response(
             status_code=400,
@@ -561,18 +561,18 @@ class LiteLLMClientTests(unittest.TestCase):
         self.assertEqual(mock_post.call_count, 1)
 
     @patch(
-        "reflex_reviewer.litellm_client.get_oauth2_token", return_value="oauth-token"
+        "reflex_reviewer.llm_api_client.get_oauth2_token", return_value="oauth-token"
     )
     @patch(
-        "reflex_reviewer.litellm_client.get_litellm_config",
+        "reflex_reviewer.llm_api_client.get_llm_api_config",
         return_value={
-            "base_url": "https://litellm.example.test",
+            "base_url": "https://llm-api.example.test",
             "api_key": None,
             "proxies": None,
             "reasoning_effort": "high",
         },
     )
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_chat_completion_falls_back_to_oauth2_when_api_key_missing(
         self,
         mock_post,
@@ -594,21 +594,21 @@ class LiteLLMClientTests(unittest.TestCase):
         mock_get_oauth2_token.assert_called_once()
 
     @patch(
-        "reflex_reviewer.litellm_client.get_oauth2_token",
+        "reflex_reviewer.llm_api_client.get_oauth2_token",
         side_effect=AssertionError(
             "oauth2 token should not be used when api key exists"
         ),
     )
     @patch(
-        "reflex_reviewer.litellm_client.get_litellm_config",
+        "reflex_reviewer.llm_api_client.get_llm_api_config",
         return_value={
-            "base_url": "https://litellm.example.test",
+            "base_url": "https://llm-api.example.test",
             "api_key": "cli-api-key",
             "proxies": None,
             "reasoning_effort": "high",
         },
     )
-    @patch("reflex_reviewer.litellm_client.requests.post")
+    @patch("reflex_reviewer.llm_api_client.requests.post")
     def test_create_response_prefers_api_key_over_oauth2(
         self,
         mock_post,
@@ -629,15 +629,15 @@ class LiteLLMClientTests(unittest.TestCase):
         )
 
     @patch(
-        "reflex_reviewer.litellm_client.get_oauth2_token",
+        "reflex_reviewer.llm_api_client.get_oauth2_token",
         side_effect=AssertionError(
             "oauth2 token should not be used when api key exists"
         ),
     )
     @patch(
-        "reflex_reviewer.litellm_client.get_litellm_config",
+        "reflex_reviewer.llm_api_client.get_llm_api_config",
         return_value={
-            "base_url": "https://litellm.example.test",
+            "base_url": "https://llm-api.example.test",
             "api_key": "cli-api-key",
             "proxies": None,
             "reasoning_effort": "high",
@@ -645,8 +645,8 @@ class LiteLLMClientTests(unittest.TestCase):
             "fine_tuning_jobs_path": "/fine_tuning/jobs",
         },
     )
-    @patch("reflex_reviewer.litellm_client._get_with_retry")
-    @patch("reflex_reviewer.litellm_client._post_with_retry")
+    @patch("reflex_reviewer.llm_api_client._get_with_retry")
+    @patch("reflex_reviewer.llm_api_client._post_with_retry")
     def test_file_and_fine_tune_apis_use_api_key_when_provided(
         self,
         mock_post_with_retry,

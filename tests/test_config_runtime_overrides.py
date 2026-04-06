@@ -7,7 +7,7 @@ from reflex_reviewer.config import (
     clear_runtime_overrides,
     get_common_config,
     get_oauth2_config,
-    get_litellm_config,
+    get_llm_api_config,
     get_model_config,
     get_vcs_config,
     resolve_dpo_training_data_dir,
@@ -88,9 +88,9 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         self.assertIsNone(common_config.get("vcs_type"))
         self.assertEqual(vcs_config.get("type"), "bitbucket")
 
-    def test_litellm_defaults_and_overrides(self):
+    def test_llm_api_defaults_and_overrides(self):
         with patch.dict("os.environ", {}, clear=True):
-            config = get_litellm_config()
+            config = get_llm_api_config()
             self.assertIsNone(config.get("base_url"))
             self.assertIsNone(config.get("api_key"))
             self.assertIsNone(config.get("proxies"))
@@ -98,27 +98,27 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
 
             set_runtime_overrides(
                 {
-                    "litellm_base_url": "https://cli-litellm.example",
-                    "litellm_proxy_url": "http://proxy.example:8080",
-                    "litellm_api_key": "cli-api-key",
-                    "litellm_reasoning_effort": "medium",
+                    "llm_api_base_url": "https://cli-llm-api.example",
+                    "llm_api_proxy_url": "http://proxy.example:8080",
+                    "llm_api_key": "cli-api-key",
+                    "llm_api_reasoning_effort": "medium",
                 }
             )
-            overridden = get_litellm_config()
+            overridden = get_llm_api_config()
 
-        self.assertEqual(overridden.get("base_url"), "https://cli-litellm.example")
+        self.assertEqual(overridden.get("base_url"), "https://cli-llm-api.example")
         self.assertEqual(overridden.get("api_key"), "cli-api-key")
         self.assertEqual(overridden.get("reasoning_effort"), "medium")
         self.assertEqual(
             overridden.get("proxies", {}).get("https"), "http://proxy.example:8080"
         )
 
-    def test_litellm_api_key_env_and_cli_precedence(self):
-        with patch.dict("os.environ", {"LITELLM_API_KEY": "env-api-key"}, clear=True):
-            env_config = get_litellm_config()
+    def test_llm_api_key_env_and_cli_precedence(self):
+        with patch.dict("os.environ", {"LLM_API_KEY": "env-api-key"}, clear=True):
+            env_config = get_llm_api_config()
             self.assertEqual(env_config.get("api_key"), "env-api-key")
 
-            cli_overridden = get_litellm_config({"litellm_api_key": "cli-api-key"})
+            cli_overridden = get_llm_api_config({"llm_api_key": "cli-api-key"})
             self.assertEqual(cli_overridden.get("api_key"), "cli-api-key")
 
     def test_model_endpoint_defaults_and_normalization(self):

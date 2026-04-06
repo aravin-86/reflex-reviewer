@@ -3,7 +3,8 @@ from unittest.mock import Mock, patch
 import requests
 from tenacity import wait_none  # type: ignore[reportMissingImports,reportMissingModuleSource]
 
-from reflex_reviewer.vcs.bitbucket_vcs import BitbucketVCSClient
+from reflex_reviewer.vcs.bitbucket_data_center import BitbucketDataCenterClient
+from reflex_reviewer.vcs.vcs_client import VCSClient
 
 
 def _response_with_payload(payload):
@@ -13,9 +14,9 @@ def _response_with_payload(payload):
     return response
 
 
-class BitbucketVCSActivitiesPaginationTests(unittest.TestCase):
+class BitbucketDataCenterActivitiesPaginationTests(unittest.TestCase):
     def setUp(self):
-        self.client = BitbucketVCSClient(
+        self.client = BitbucketDataCenterClient(
             {
                 "base_url": "https://bitbucket.example.com",
                 "project": "PRODUCT",
@@ -24,7 +25,7 @@ class BitbucketVCSActivitiesPaginationTests(unittest.TestCase):
             }
         )
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.get")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.get")
     def test_fetch_pr_activities_paginates_and_merges_pages(self, mock_get):
         mock_get.side_effect = [
             _response_with_payload(
@@ -53,7 +54,7 @@ class BitbucketVCSActivitiesPaginationTests(unittest.TestCase):
             mock_get.call_args_list[1].kwargs["params"], {"limit": 2, "start": 2}
         )
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.get")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.get")
     def test_fetch_pr_activities_keeps_parent_and_reply_when_split_across_pages(
         self, mock_get
     ):
@@ -100,9 +101,33 @@ class BitbucketVCSActivitiesPaginationTests(unittest.TestCase):
         self.assertEqual(len(activities), 2)
 
 
-class BitbucketVCSRetryTests(unittest.TestCase):
+class VCSClientContractEnforcementTests(unittest.TestCase):
+    def test_bitbucket_data_center_client_satisfies_vcs_contract(self):
+        client = BitbucketDataCenterClient(
+            {
+                "base_url": "https://bitbucket.example.com",
+                "project": "PRODUCT",
+                "repo_slug": "repo",
+                "token": "test-token",
+            }
+        )
+
+        self.assertIsInstance(client, VCSClient)
+
+    def test_incomplete_vcs_client_subclass_cannot_be_instantiated(self):
+        incomplete_vcs_client = type(
+            "IncompleteVCSClient",
+            (VCSClient,),
+            {"fetch_pr_diff": lambda self, pr_id: {"diffs": []}},
+        )
+
+        with self.assertRaises(TypeError):
+            incomplete_vcs_client()
+
+
+class BitbucketDataCenterRetryTests(unittest.TestCase):
     def setUp(self):
-        self.client = BitbucketVCSClient(
+        self.client = BitbucketDataCenterClient(
             {
                 "base_url": "https://bitbucket.example.com",
                 "project": "PRODUCT",
@@ -125,7 +150,7 @@ class BitbucketVCSRetryTests(unittest.TestCase):
             retrying.wait = wait_none()
             retrying.sleep = lambda _: None
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.get")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.get")
     def test_fetch_pr_diff_retries_on_transient_error_and_succeeds(self, mock_get):
         mock_get.side_effect = [
             requests.exceptions.Timeout("transient timeout"),
@@ -137,7 +162,7 @@ class BitbucketVCSRetryTests(unittest.TestCase):
         self.assertEqual(response, {"diffs": []})
         self.assertEqual(mock_get.call_count, 2)
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.get")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.get")
     def test_fetch_pr_diff_raises_after_retry_exhaustion(self, mock_get):
         mock_get.side_effect = requests.exceptions.ConnectionError("persistent failure")
 
@@ -146,7 +171,7 @@ class BitbucketVCSRetryTests(unittest.TestCase):
 
         self.assertEqual(mock_get.call_count, 3)
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.post")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.post")
     def test_post_comment_retries_on_transient_error_and_succeeds(self, mock_post):
         mock_post.side_effect = [
             requests.exceptions.ConnectionError("temporary issue"),
@@ -158,7 +183,7 @@ class BitbucketVCSRetryTests(unittest.TestCase):
         self.assertEqual(response, {"id": 99})
         self.assertEqual(mock_post.call_count, 2)
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.put")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.put")
     def test_update_comment_retries_on_transient_error_and_succeeds(self, mock_put):
         mock_put.side_effect = [
             requests.exceptions.Timeout("temporary issue"),
@@ -170,7 +195,7 @@ class BitbucketVCSRetryTests(unittest.TestCase):
         self.assertEqual(response, {"id": 100, "version": 2})
         self.assertEqual(mock_put.call_count, 2)
 
-    @patch("reflex_reviewer.vcs.bitbucket_vcs.requests.delete")
+    @patch("reflex_reviewer.vcs.bitbucket_data_center.requests.delete")
     def test_delete_comment_retries_on_transient_error_and_succeeds(self, mock_delete):
         success_response = Mock()
         success_response.raise_for_status = Mock()

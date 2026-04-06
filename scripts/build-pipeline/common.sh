@@ -61,8 +61,8 @@ rr_require_env() {
   return 0
 }
 
-rr_require_litellm_auth() {
-  if [[ -n "${LITELLM_API_KEY:-}" ]]; then
+rr_require_llm_api_auth() {
+  if [[ -n "${LLM_API_KEY:-}" ]]; then
     return 0
   fi
 
@@ -282,11 +282,12 @@ rr_require_runtime_env() {
   if [[ "${require_judge_model}" == "1" ]]; then
     rr_require_env "JUDGE_MODEL"
   fi
+  rr_require_env "LLM_API_BASE_URL"
   rr_require_env "VCS_BASE_URL"
   rr_require_env "VCS_PROJECT_KEY"
   rr_require_env "VCS_REPO_SLUG"
   rr_require_env "VCS_TOKEN"
-  rr_require_litellm_auth
+  rr_require_llm_api_auth
 }
 
 rr_ensure_directory() {

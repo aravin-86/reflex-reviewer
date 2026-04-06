@@ -47,7 +47,7 @@ def _get_runtime_oauth2_config():
         "user_secret": str(raw_config.get("user_secret") or "").strip(),
         "token_cache_file": token_cache_file,
         "refresh_buffer_seconds": refresh_buffer_seconds,
-        "litellm_scope": str(raw_config.get("litellm_scope") or "").strip(),
+        "llm_api_scope": str(raw_config.get("llm_api_scope") or "").strip(),
     }
 
 
@@ -120,7 +120,7 @@ def _request_new_token(runtime_config, scope=None):
 
 def get_oauth2_token():
     runtime_config = _get_runtime_oauth2_config()
-    scope = runtime_config["litellm_scope"]
+    scope = runtime_config["llm_api_scope"]
     cached = _load_cached_token(runtime_config["token_cache_file"])
     if cached and _is_token_valid(
         cached,
