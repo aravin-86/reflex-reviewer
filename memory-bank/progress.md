@@ -51,6 +51,22 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Fixed review user prompt context to avoid unresolved purpose placeholders and aligned purpose synthesis with PR template structure:
+  - updated `reflex_reviewer/prompts/review_user_prompt.md`:
+    - removed language/constraints context lines,
+    - retained only `Purpose (from PR title + description): {{PURPOSE}}`.
+  - updated `reflex_reviewer/review.py`:
+    - added purpose-building helpers that parse PR description sections (`Summary`, `Changes`) and ignore `Test Results`,
+    - added safe fallback when PR metadata is missing,
+    - ensured review prompt rendering replaces `{{PURPOSE}}` before draft-model invocation.
+  - updated `tests/test_review_model_api.py`:
+    - added coverage for summary/changes parsing and test-results exclusion,
+    - added coverage for purpose fallback,
+    - added run-path assertion verifying purpose placeholder replacement in rendered prompt.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api`
+  - Result: `Ran 21 tests ... OK`.
+
 - Simplified review duplicate-handling flow to rely on model/judge semantics using existing root-comment context:
   - updated `reflex_reviewer/review.py`:
     - removed code-side rerun dedupe against existing inline comments (`_extract_existing_comment_state`, inline-key matching path).

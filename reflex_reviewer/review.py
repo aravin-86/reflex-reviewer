@@ -54,6 +54,8 @@ BOT_SIGNATURE_PATTERN = re.compile(
     r"(?:\r?\n){2}\s*###\s*#?[A-Za-z0-9._-]+\s*$",
     re.DOTALL,
 )
+PURPOSE_FALLBACK = "Not specified in PR metadata"
+PURPOSE_MAX_CHARS = 400
 
 
 def _parse_bool(value):
@@ -559,6 +561,81 @@ def fetch_pr_activities(vcs_client, pr_id, limit=ACTIVITIES_FETCH_LIMIT):
         return []
 
 
+def _normalize_purpose_text(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _truncate_purpose_text(value, max_chars=PURPOSE_MAX_CHARS):
+    normalized = _normalize_purpose_text(value)
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 1].rstrip() + "…"
+
+
+def _extract_pr_description_summary_and_changes(pr_description):
+    raw_description = str(pr_description or "")
+    if not raw_description.strip() or raw_description.strip().upper() == "N/A":
+        return "", ""
+
+    summary_lines = []
+    changes_lines = []
+    current_section = None
+
+    for raw_line in raw_description.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        normalized_heading = line.rstrip(":").strip().lower()
+        if normalized_heading == "summary":
+            current_section = "summary"
+            continue
+        if normalized_heading == "changes":
+            current_section = "changes"
+            continue
+        if normalized_heading == "test results":
+            current_section = None
+            continue
+
+        if re.match(r"^does\s+this\s+pull\s+request\b", line, re.IGNORECASE):
+            current_section = None
+            continue
+
+        if current_section == "summary":
+            summary_lines.append(line)
+        elif current_section == "changes":
+            changes_lines.append(line)
+
+    summary_text = _truncate_purpose_text(" ".join(summary_lines), max_chars=180)
+    changes_text = _truncate_purpose_text(" ".join(changes_lines), max_chars=180)
+    return summary_text, changes_text
+
+
+def _build_review_purpose(pr_title, pr_description):
+    normalized_title = _normalize_purpose_text(pr_title)
+    summary_text, changes_text = _extract_pr_description_summary_and_changes(
+        pr_description
+    )
+
+    purpose_parts = []
+    if normalized_title:
+        purpose_parts.append(f"PR Title: {normalized_title}")
+    if summary_text:
+        purpose_parts.append(f"Summary: {summary_text}")
+    if changes_text and changes_text.lower() != summary_text.lower():
+        purpose_parts.append(f"Changes: {changes_text}")
+
+    if not purpose_parts:
+        fallback_description = _normalize_purpose_text(pr_description)
+        if fallback_description and fallback_description.upper() != "N/A":
+            purpose_parts.append(_truncate_purpose_text(fallback_description, max_chars=220))
+
+    if not purpose_parts:
+        return PURPOSE_FALLBACK
+
+    return _truncate_purpose_text(" | ".join(purpose_parts))
+
+
 def _sanitize_comment_text(text):
     """Normalize whitespace and trim long comments for prompt efficiency."""
     if not text:
@@ -798,6 +875,7 @@ def run(
         pr_title, pr_description = fetch_pr_metadata(vcs_client, pr_id)
         activities = fetch_pr_activities(vcs_client, pr_id)
         existing_feedback = build_existing_feedback_context(activities, run_team_name)
+        review_purpose = _build_review_purpose(pr_title, pr_description)
 
         # 3. Request Review from GPT-5.4 mini
         prompts_dir = Path(__file__).resolve().parent / "prompts"
@@ -807,6 +885,7 @@ def run(
             draft_user_p = (
                 f.read()
                 .replace("{{DIFF_CONTENT}}", safe_diff)
+                .replace("{{PURPOSE}}", review_purpose)
                 .replace("{{PR_TITLE}}", pr_title)
                 .replace("{{PR_DESCRIPTION}}", pr_description)
                 .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
@@ -873,7 +952,9 @@ def run(
             prompts_dir / "judge_review_system_prompt.md", "r", encoding="utf-8"
         ) as f:
             judge_sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
-        with open(prompts_dir / "judge_review_user_prompt.md", "r", encoding="utf-8") as f:
+        with open(
+            prompts_dir / "judge_review_user_prompt.md", "r", encoding="utf-8"
+        ) as f:
             judge_user_p = _build_judge_prompt_user_content(
                 prompt_template=f.read(),
                 pr_title=pr_title,

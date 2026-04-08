@@ -132,6 +132,15 @@
   - `rr_package_extra_index_url` (empty value normalizes to `None`, which disables extra index usage).
 - Build Pipeline docs and examples now document package-mode index defaults and env controls in `README.md` and `.env.example`.
 - Added unit coverage in `tests/test_config_runtime_overrides.py` for pipeline runtime package index URL defaults and env/CLI override precedence.
+- Review prompt context now includes a concrete `Purpose` field (no unresolved placeholder) built from PR metadata:
+  - format prioritizes `PR Title` plus PR description sections `Summary` and `Changes`,
+  - `Test Results` section is intentionally ignored in purpose derivation,
+  - fallback remains safe when metadata is missing.
+- `review_user_prompt.md` context section is simplified to a single purpose line and no longer includes separate language/constraints fields.
+- Added review unit coverage for purpose parsing/rendering:
+  - summary/changes extraction behavior,
+  - test-results exclusion,
+  - prompt placeholder replacement and fallback handling.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

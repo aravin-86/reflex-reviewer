@@ -5,6 +5,52 @@ import reflex_reviewer.review as review_module
 
 
 class ReviewModelApiTests(unittest.TestCase):
+    def test_extract_pr_description_summary_and_changes_ignores_test_results(self):
+        description = """Summary
+OSD-11172: Implementation to use evergreen OS image for Proxy and GSM compute instance.
+Changes
+OSD-11172: Implementation to use evergreen OS image for Proxy and GSM compute instance.
+Test Results
+Tested in DEV@FRA
+Logs: https://example.com/build-logs
+Does this PULL Request depend on any other Pull Requests?"""
+
+        summary, changes = review_module._extract_pr_description_summary_and_changes(
+            description
+        )
+
+        self.assertEqual(
+            summary,
+            "OSD-11172: Implementation to use evergreen OS image for Proxy and GSM compute instance.",
+        )
+        self.assertEqual(
+            changes,
+            "OSD-11172: Implementation to use evergreen OS image for Proxy and GSM compute instance.",
+        )
+
+    def test_build_review_purpose_uses_title_summary_and_skips_duplicate_changes(self):
+        description = """Summary
+Feature summary text.
+Changes
+Feature summary text.
+Test Results
+Smoke tested in DEV"""
+
+        purpose = review_module._build_review_purpose(
+            "OSD-11172: Evergreen image migration", description
+        )
+
+        self.assertEqual(
+            purpose,
+            "PR Title: OSD-11172: Evergreen image migration | Summary: Feature summary text.",
+        )
+
+    def test_build_review_purpose_falls_back_when_pr_metadata_is_missing(self):
+        self.assertEqual(
+            review_module._build_review_purpose("", "N/A"),
+            review_module.PURPOSE_FALLBACK,
+        )
+
     def test_normalize_comment_severity_accepts_only_supported_labels(self):
         self.assertEqual(review_module._normalize_comment_severity("critical"), "CRITICAL")
         self.assertEqual(review_module._normalize_comment_severity("MAJOR"), "MAJOR")
@@ -344,6 +390,13 @@ class ReviewModelApiTests(unittest.TestCase):
                 draft_model="oca/gpt-4.1",
                 judge_model="oca/gpt-4.1",
             )
+
+        first_review_call = mock_get_review_model_completion.call_args_list[0]
+        draft_user_prompt = first_review_call.args[2]
+        self.assertIn(
+            "Purpose (from PR title + description): PR Title: title", draft_user_prompt
+        )
+        self.assertNotIn("{{PURPOSE}}", draft_user_prompt)
 
         self.assertEqual(vcs_client.post_comment.call_count, 2)
         inline_call = vcs_client.post_comment.call_args_list[0]
