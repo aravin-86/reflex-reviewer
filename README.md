@@ -48,27 +48,43 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
 ### Architecture diagram
 
 ```mermaid
-%%{init: {'themeVariables': {'fontSize': '25px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'stepAfter', 'nodeSpacing': 90, 'rankSpacing': 110, 'padding': 20}} }%%
+%%{init: {'themeVariables': {'fontSize': '27px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'stepAfter', 'nodeSpacing': 60, 'rankSpacing': 45, 'padding': 20}} }%%
 flowchart TB
-    classDef largeText fill:#e1f5fe,stroke:#01579b,stroke-width:3px,font-size:25px;
+    classDef largeText fill:#e1f5fe,stroke:#01579b,stroke-width:3px,font-size:27px;
+    classDef loopTitle fill:transparent,stroke:transparent,color:#01579b,font-size:31px,font-weight:bold;
     class repo,pipelineHooks,scheduler,draftReview,judgeReview,feedback,distill,data,refine largeText;
 
-    subgraph reviewLoop["Review Loop"]
-      direction LR
-      repo["VCS Repository"]
-      pipelineHooks["Pipeline Hooks<br/>(PR updates, post-merge)"]
-      draftReview["review.py<br/>Draft Review (DRAFT_MODEL)"]
-      judgeReview["review.py<br/>LLM Judge (JUDGE_MODEL)"]
-      feedback["Human feedback on AI comments"]
+    subgraph reviewLoop[" "]
+      direction TB
+      reviewTitle["Review Loop"]
+      subgraph reviewTop[" "]
+        direction LR
+        repo["VCS Repository"]
+        pipelineHooks["Pipeline Hooks<br/>(PR updates, post-merge)"]
+        draftReview["review.py<br/>Draft Review (DRAFT_MODEL)"]
+      end
+      subgraph reviewBottom[" "]
+        direction LR
+        judgeReview["review.py<br/>Judge Review (JUDGE_MODEL)"]
+        feedback["Human feedback on AI comments"]
+      end
+      reviewTitle ~~~ repo
     end
 
-    subgraph learningLoop["Learning Loop"]
-      direction LR
-      distill["distill.py<br/>Distill (Observer)"]
-      data["DPO preference dataset"]
-      refine["refine.py<br/>Refine (Optimizer)"]
-      scheduler["Scheduler<br/>(monthly schedule / on-demand)"]
+    subgraph learningLoop[" "]
+      direction TB
+      learningTitle["Learning Loop"]
+      subgraph learningRow[" "]
+        direction LR
+        distill["distill.py<br/>Distill (Observer)"]
+        data["DPO preference dataset"]
+        refine["refine.py<br/>Refine (Optimizer)"]
+        scheduler["Scheduler<br/>(monthly schedule / on-demand)"]
+      end
+      learningTitle ~~~ distill
     end
+
+    class reviewTitle,learningTitle loopTitle;
 
     repo --> pipelineHooks
     pipelineHooks -->|PR created / updated| draftReview

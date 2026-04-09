@@ -86,7 +86,11 @@
   - keep only comments supported by provided diff/PR context/existing root comments,
   - drop speculative/unsupported/hallucinated findings when evidence is insufficient.
 - Judge stage output is now the only payload posted to VCS; existing severity normalization and test-file advisory coercion remain in final posting path.
-- README architecture diagram now explicitly visualizes the review flow as `Draft Review (DRAFT_MODEL) -> LLM Judge (JUDGE_MODEL) -> VCS posting` to match runtime behavior.
+- README architecture diagram now explicitly visualizes the review flow as `Draft Review (DRAFT_MODEL) -> Judge Review (JUDGE_MODEL) -> VCS posting` to match runtime behavior.
+- README architecture diagram layout is now compacted for single-page viewing while keeping `flowchart TB` orientation:
+  - Review Loop split into compact top/bottom rows inside the same loop,
+  - Learning Loop title rendering adjusted to avoid overlap,
+  - Diagram font sizing increased for readability after compaction.
 - README now explicitly documents stage responsibilities in review flow:
   - `DRAFT_MODEL` as broad/high-recall draft issue finder,
   - `JUDGE_MODEL` as precision/quality gate that filters and rewrites final payload before posting.

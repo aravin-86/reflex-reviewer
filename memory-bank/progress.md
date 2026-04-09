@@ -51,6 +51,13 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated `README.md` architecture diagram for single-page readability without changing overall orientation:
+  - kept root orientation as `flowchart TB`,
+  - compacted `Review Loop` into a tighter two-row structure while preserving flow semantics,
+  - renamed judge node label to `Judge Review (JUDGE_MODEL)`,
+  - adjusted loop-title rendering to avoid overlap with nodes,
+  - increased diagram text sizing for better readability after compaction.
+
 - Fixed review user prompt context to avoid unresolved purpose placeholders and aligned purpose synthesis with PR template structure:
   - updated `reflex_reviewer/prompts/review_user_prompt.md`:
     - removed language/constraints context lines,
