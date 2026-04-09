@@ -66,7 +66,7 @@ flowchart TB
       subgraph reviewBottom[" "]
         direction LR
         judgeReview["review.py<br/>Judge Review (JUDGE_MODEL)"]
-        feedback["Human feedback on AI comments"]
+        feedback["Human feedback on comments"]
       end
       reviewTitle ~~~ repo
     end
