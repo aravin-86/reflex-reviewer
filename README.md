@@ -105,6 +105,8 @@ flowchart TB
    - Fetches PR diff + metadata from configured VCS provider
    - Fetches paginated PR activities/comments and builds root-comment context (human + bot) to reduce repetitive suggestions
    - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
+     - **Unified diff (short note):** Git-style patch text where `---`/`+++` are file headers, `@@ -a,b +c,d @@` is a hunk header, and line prefixes mean removed (`-`), added (`+`), or context (` `).
+     - **Incoming JSON diff shape (short note):** high-level structure is `diffs -> hunks -> segments -> lines` (for example: each diff has `source`/`destination`, each hunk has line spans, each segment has a `type` like `ADDED|REMOVED|CONTEXT`, and each segment contains line entries).
    - Runs two-stage review inference:
      - `DRAFT_MODEL` (broad issue finder / high-recall pass):
        - analyzes diff + PR context and proposes initial findings,
