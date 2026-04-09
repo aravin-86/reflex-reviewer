@@ -145,6 +145,13 @@
   - summary/changes extraction behavior,
   - test-results exclusion,
   - prompt placeholder replacement and fallback handling.
+- LLM API runtime timeout is now configurable for read latency control:
+  - added `llm_api.read_timeout_seconds` to `reflex_reviewer.toml` with env-backed default (`${LLM_API_READ_TIMEOUT_SECONDS|-30}`),
+  - `get_llm_api_config(...)` now resolves read-timeout from TOML and allows env override via `LLM_API_READ_TIMEOUT_SECONDS`,
+  - `llm_api_client` now consumes config-provided request timeout (connect fixed at 10s, read configurable),
+  - request logs now include applied `request_timeout` for safe observability,
+  - docs/examples updated in `README.md` and `.env.example`,
+  - unit coverage added in `tests/test_config_runtime_overrides.py` for default/env/override timeout behavior.
 
 ## Next likely updates
 - Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.

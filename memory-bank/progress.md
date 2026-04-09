@@ -51,6 +51,30 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Added configurable LLM API read-timeout control through centralized config and docs:
+  - updated `reflex_reviewer.toml` `[llm_api]`:
+    - added `read_timeout_seconds` with env-backed default: `${LLM_API_READ_TIMEOUT_SECONDS|-30}`.
+  - updated `reflex_reviewer/config.py`:
+    - added timeout normalization helper that preserves connect timeout at 10 seconds and resolves configurable read timeout.
+    - `get_llm_api_config(...)` now resolves `llm_api_read_timeout_seconds` from TOML and allows env override via `LLM_API_READ_TIMEOUT_SECONDS` when CLI/runtime override is absent.
+    - returns normalized `request_timeout` tuple for runtime client consumption.
+  - updated `reflex_reviewer/llm_api_client.py`:
+    - request helpers now accept/propagate timeout from runtime config instead of fixed constant.
+    - runtime config now carries `request_timeout` from `get_llm_api_config(...)`.
+    - request logs now include `request_timeout` for safe observability.
+  - updated docs/examples:
+    - `.env.example` now includes `LLM_API_READ_TIMEOUT_SECONDS=30`.
+    - `README.md` runtime config section now documents `llm_api.read_timeout_seconds` and env override behavior.
+    - `README.md` reuse section now lists `LLM_API_READ_TIMEOUT_SECONDS` as optional runtime/networking control.
+  - updated tests:
+    - `tests/test_config_runtime_overrides.py` now validates:
+      - default timeout tuple `(10, 30)`,
+      - runtime override behavior (`llm_api_read_timeout_seconds`),
+      - env override + CLI/runtime precedence.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides tests.test_llm_api_client`
+  - Result: `Ran 41 tests ... OK`.
+
 - Updated `README.md` architecture diagram for single-page readability without changing overall orientation:
   - kept root orientation as `flowchart TB`,
   - compacted `Review Loop` into a tighter two-row structure while preserving flow semantics,

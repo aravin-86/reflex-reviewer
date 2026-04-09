@@ -12,10 +12,11 @@ from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleS
 )
 
 from .config import get_llm_api_config
-from .oauth2 import get_oauth2_token, REQUEST_TIMEOUT
+from .oauth2 import get_oauth2_token
 
 logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {408, 409, 425, 429}
+DEFAULT_REQUEST_TIMEOUT = (10, 30)
 
 
 def _normalize_api_path(path_value, default_path):
@@ -37,10 +38,20 @@ def _get_llm_api_runtime_config():
             "LLM_API_BASE_URL is required. Pass --llm-api-base-url or set LLM_API_BASE_URL."
         )
 
+    raw_request_timeout = llm_api_config.get("request_timeout")
+    request_timeout = DEFAULT_REQUEST_TIMEOUT
+    if (
+        isinstance(raw_request_timeout, (list, tuple))
+        and len(raw_request_timeout) == 2
+        and all(isinstance(timeout_value, int) for timeout_value in raw_request_timeout)
+    ):
+        request_timeout = (raw_request_timeout[0], raw_request_timeout[1])
+
     return {
         "base_url": base_url.rstrip("/"),
         "api_key": llm_api_config.get("api_key"),
         "proxies": llm_api_config.get("proxies"),
+        "request_timeout": request_timeout,
         "reasoning_effort": llm_api_config.get("reasoning_effort", "high"),
         "chat_completions_path": _normalize_api_path(
             llm_api_config.get("chat_completions_path"),
@@ -141,9 +152,10 @@ def _estimate_context_window_tokens(payload_items):
     reraise=True,
 )
 def _post_with_retry(url, **kwargs):
+    request_timeout = kwargs.pop("timeout", DEFAULT_REQUEST_TIMEOUT)
     response = requests.post(  # pyright: ignore[reportCallIssue]
         url,
-        timeout=REQUEST_TIMEOUT,
+        timeout=request_timeout,
         **kwargs,
     )
     try:
@@ -167,9 +179,10 @@ def _post_with_retry(url, **kwargs):
     reraise=True,
 )
 def _get_with_retry(url, **kwargs):
+    request_timeout = kwargs.pop("timeout", DEFAULT_REQUEST_TIMEOUT)
     response = requests.get(  # pyright: ignore[reportCallIssue]
         url,
-        timeout=REQUEST_TIMEOUT,
+        timeout=request_timeout,
         **kwargs,
     )
     try:
@@ -452,12 +465,13 @@ def chat_completions(model, messages, stream=False, pr_id=None):
 
     accept_header = "text/event-stream"
     logger.info(
-        "Calling LLM API chat completion: model=%s, stream=%s, message_count=%s, context_window_size_tokens_estimate=%s, proxies_enabled=%s",
+        "Calling LLM API chat completion: model=%s, stream=%s, message_count=%s, context_window_size_tokens_estimate=%s, proxies_enabled=%s, request_timeout=%s",
         model,
         stream,
         message_count,
         context_window_size_tokens_estimate,
         bool(runtime_config.get("proxies")),
+        runtime_config["request_timeout"],
     )
     try:
         response = _post_with_retry(
@@ -470,6 +484,7 @@ def chat_completions(model, messages, stream=False, pr_id=None):
             json=payload,
             stream=stream,
             proxies=runtime_config["proxies"],
+            timeout=runtime_config["request_timeout"],
         )
         logger.info(
             "Received LLM API chat completion successfully. model=%s pr_id=%s",
@@ -543,22 +558,24 @@ def responses(
     accept_header = "application/json, text/event-stream"
     if applied_reasoning_effort is not None:
         logger.info(
-            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, reasoning_effort=%s",
+            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, reasoning_effort=%s, request_timeout=%s",
             model,
             stream,
             bool(previous_response_id),
             input_item_count,
             context_window_size_tokens_estimate,
             applied_reasoning_effort,
+            runtime_config["request_timeout"],
         )
     else:
         logger.info(
-            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s",
+            "Calling LLM API responses API: model=%s, stream=%s, has_previous_response_id=%s, input_item_count=%s, context_window_size_tokens_estimate=%s, request_timeout=%s",
             model,
             stream,
             bool(previous_response_id),
             input_item_count,
             context_window_size_tokens_estimate,
+            runtime_config["request_timeout"],
         )
 
     try:
@@ -572,6 +589,7 @@ def responses(
             json=payload,
             stream=stream,
             proxies=runtime_config["proxies"],
+            timeout=runtime_config["request_timeout"],
         )
         logger.info(
             "Received LLM API responses API response successfully. model=%s pr_id=%s",
@@ -621,6 +639,7 @@ def upload_file(file_path, purpose="fine-tune"):
                 files=files,
                 data={"purpose": purpose},
                 proxies=runtime_config["proxies"],
+                timeout=runtime_config["request_timeout"],
             )
         except requests.exceptions.RequestException:
             logger.exception(
@@ -663,6 +682,7 @@ def create_fine_tune_job(
             },
             json=payload,
             proxies=runtime_config["proxies"],
+            timeout=runtime_config["request_timeout"],
         )
     except requests.exceptions.RequestException:
         logger.exception(
@@ -682,6 +702,7 @@ def retrieve_fine_tune_job_status(job_id):
             f"{runtime_config['base_url']}{fine_tuning_jobs_path}/{job_id}",
             headers={"Authorization": f"Bearer {token}"},
             proxies=runtime_config["proxies"],
+            timeout=runtime_config["request_timeout"],
         )
     except requests.exceptions.RequestException:
         logger.exception(

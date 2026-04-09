@@ -36,10 +36,10 @@ def _load_file_config():
 
     loaded = {}
     if _CONFIG_FILE_PATH.exists():
-        with open(_CONFIG_FILE_PATH, "rb") as config_file:
-            parsed = tomllib.load(config_file)
-            if isinstance(parsed, dict):
-                loaded = parsed
+        config_text = _CONFIG_FILE_PATH.read_text(encoding="utf-8")
+        parsed = tomllib.loads(config_text)
+        if isinstance(parsed, dict):
+            loaded = parsed
 
     _FILE_CONFIG = loaded
     return _FILE_CONFIG
@@ -126,6 +126,19 @@ def _to_float(value, default=None):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_request_timeout(
+    read_timeout_raw,
+    default_connect_timeout=10,
+    default_read_timeout=30,
+):
+    read_timeout = _to_int(read_timeout_raw, default=default_read_timeout)
+
+    if read_timeout is None or read_timeout <= 0:
+        read_timeout = default_read_timeout
+
+    return (default_connect_timeout, read_timeout)
 
 
 def _to_set(value):
@@ -490,6 +503,20 @@ def get_llm_api_config(overrides=None):
     if not api_key:
         api_key = os.getenv("LLM_API_KEY")
 
+    read_timeout_seconds = _resolve_toml_value(
+        overrides,
+        "llm_api_read_timeout_seconds",
+        "llm_api",
+        "read_timeout_seconds",
+        30,
+    )
+
+    merged_overrides = _merged_overrides(overrides)
+    if "llm_api_read_timeout_seconds" not in merged_overrides:
+        env_read_timeout_seconds = os.getenv("LLM_API_READ_TIMEOUT_SECONDS")
+        if env_read_timeout_seconds is not None:
+            read_timeout_seconds = env_read_timeout_seconds
+
     reasoning_effort = model_config.get("reasoning_effort")
 
     proxies = None
@@ -504,6 +531,9 @@ def get_llm_api_config(overrides=None):
     return {
         "base_url": base_url,
         "api_key": api_key,
+        "request_timeout": _normalize_request_timeout(
+            read_timeout_seconds,
+        ),
         "reasoning_effort": reasoning_effort,
         "unsupported_reasoning_models": model_config.get(
             "unsupported_reasoning_models", set()

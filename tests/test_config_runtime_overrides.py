@@ -95,6 +95,7 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
             self.assertIsNone(config.get("base_url"))
             self.assertIsNone(config.get("api_key"))
             self.assertIsNone(config.get("proxies"))
+            self.assertEqual(config.get("request_timeout"), (10, 30))
             self.assertEqual(config.get("reasoning_effort"), "high")
 
             set_runtime_overrides(
@@ -103,6 +104,7 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
                     "llm_api_proxy_url": "http://proxy.example:8080",
                     "llm_api_key": "cli-api-key",
                     "llm_api_reasoning_effort": "medium",
+                    "llm_api_read_timeout_seconds": "120",
                 }
             )
             overridden = get_llm_api_config()
@@ -110,9 +112,22 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         self.assertEqual(overridden.get("base_url"), "https://cli-llm-api.example")
         self.assertEqual(overridden.get("api_key"), "cli-api-key")
         self.assertEqual(overridden.get("reasoning_effort"), "medium")
+        self.assertEqual(overridden.get("request_timeout"), (10, 120))
         self.assertEqual(
             overridden.get("proxies", {}).get("https"), "http://proxy.example:8080"
         )
+
+    def test_llm_api_read_timeout_env_override_and_cli_precedence(self):
+        with patch.dict(
+            "os.environ", {"LLM_API_READ_TIMEOUT_SECONDS": "75"}, clear=True
+        ):
+            env_config = get_llm_api_config()
+            self.assertEqual(env_config.get("request_timeout"), (10, 75))
+
+            cli_overridden = get_llm_api_config(
+                {"llm_api_read_timeout_seconds": "90"}
+            )
+            self.assertEqual(cli_overridden.get("request_timeout"), (10, 90))
 
     def test_llm_api_key_env_and_cli_precedence(self):
         with patch.dict("os.environ", {"LLM_API_KEY": "env-api-key"}, clear=True):

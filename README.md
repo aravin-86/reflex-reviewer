@@ -235,6 +235,10 @@ Common optional CLI arguments:
 - `--vcs-type` (review/distill)
 - runtime override flags for VCS and LLM API endpoints/credentials (for example: `--vcs-base-url`, `--llm-api-base-url`, `--llm-api-key`)
 
+LLM API timeout configuration:
+- `llm_api.read_timeout_seconds` in `reflex_reviewer.toml` controls LLM API socket read timeout (default `30`).
+- `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML value at runtime.
+
 LLM API auth behavior:
 - If `LLM_API_KEY` (or CLI `--llm-api-key`) is set, LLM API requests use that API key.
 - If no API key is provided, LLM API requests fall back to OAuth2 token auth.
@@ -586,6 +590,7 @@ Then update `.env` with your runtime values:
 - VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
 - LLM API endpoint/model: `LLM_API_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
 - Optional LLM API networking: `LLM_API_PROXY_URL`.
+- Optional LLM API read timeout override: `LLM_API_READ_TIMEOUT_SECONDS`.
 - Judge model (review flow): `JUDGE_MODEL` (evidence-backed verification + final curation/rewrite before posting).
 - Auth (choose one):
   - Set `LLM_API_KEY`, **or**
