@@ -270,11 +270,11 @@ For copy-friendly build pipeline usage, copy these two files into your pipeline 
 
 Run only the launcher. It internally imports and uses the bootstrap module.
 
-On every launcher run, bootstrap behavior is deterministic:
-- delete existing runner venv (if present),
-- create a fresh venv,
-- install/upgrade required package dependencies,
-- run selected flow command using the fresh venv interpreter.
+Launcher bootstrap behavior is deterministic and reuse-first:
+- reuse existing runner venv when bootstrap inputs match and venv is healthy,
+- rebuild venv when missing/broken, bootstrap inputs changed, or force-refresh is enabled,
+- install/upgrade required package dependencies during rebuild,
+- run selected flow command using the resolved venv interpreter.
 
 Run with a single command (env-driven mode):
 
@@ -324,6 +324,7 @@ Optional:
 - `RR_PACKAGE_INSTALL_TARGET` (optional pip install target; default: `reflex-reviewer`)
 - `RR_PACKAGE_INDEX_URL` (optional pip `--index-url` override)
 - `RR_PACKAGE_EXTRA_INDEX_URL` (optional pip `--extra-index-url` override)
+- `RR_FORCE_REBUILD_VENV` (optional hard refresh flag; truthy values like `1|true|yes|on` force venv rebuild)
 
 Example invocations:
 

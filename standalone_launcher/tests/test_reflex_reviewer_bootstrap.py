@@ -5,7 +5,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from standalone_launcher.reflex_reviewer_bootstrap import (
+    BOOTSTRAP_STATE_FILE_NAME,
     DEFAULT_RUNNER_VENV_DIR_NAME,
+    FORCE_REBUILD_VENV_ENV,
     PACKAGE_EXTRA_INDEX_URL_ENV,
     PACKAGE_INDEX_URL_ENV,
     PACKAGE_INSTALL_TARGET_ENV,
@@ -158,6 +160,110 @@ class LauncherBootstrapTests(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertTrue(venv_dir.exists())
             self.assertEqual(str((venv_dir / "bin" / "python").resolve()), resolved_python)
+            self.assertEqual(mocked_run.call_count, 3)
+
+    def test_bootstrap_runner_environment_reuses_existing_matching_venv(self):
+        with TemporaryDirectory() as temp_dir:
+            runner_file = str(
+                Path(temp_dir) / "standalone_launcher" / "reflex_reviewer_launcher.py"
+            )
+            venv_dir = Path(temp_dir) / "standalone_launcher" / ".reflex-reviewer-venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("#!/usr/bin/env python3")
+
+            env = {
+                PACKAGE_INSTALL_TARGET_ENV: "reflex-reviewer==0.1.6",
+                PACKAGE_INDEX_URL_ENV: "https://test.pypi.org/simple/",
+                PACKAGE_EXTRA_INDEX_URL_ENV: "https://pypi.org/simple/",
+            }
+            (venv_dir / BOOTSTRAP_STATE_FILE_NAME).write_text(
+                '{"package_extra_index_url": "https://pypi.org/simple/", "package_index_url": "https://test.pypi.org/simple/", "package_install_target": "reflex-reviewer==0.1.6"}'
+            )
+
+            with patch(
+                "standalone_launcher.reflex_reviewer_bootstrap.run_command"
+            ) as mocked_run:
+                resolved_python = bootstrap_runner_environment(
+                    sys.executable,
+                    runner_file,
+                    env,
+                )
+
+            self.assertEqual(str(venv_python.resolve()), str(Path(resolved_python).resolve()))
+            mocked_run.assert_not_called()
+
+    def test_bootstrap_runner_environment_rebuilds_when_state_changes(self):
+        with TemporaryDirectory() as temp_dir:
+            runner_file = str(
+                Path(temp_dir) / "standalone_launcher" / "reflex_reviewer_launcher.py"
+            )
+            venv_dir = Path(temp_dir) / "standalone_launcher" / ".reflex-reviewer-venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("#!/usr/bin/env python3")
+
+            # Existing state does not match incoming env target
+            (venv_dir / BOOTSTRAP_STATE_FILE_NAME).write_text(
+                '{"package_extra_index_url": "", "package_index_url": "", "package_install_target": "reflex-reviewer==0.1.5"}'
+            )
+
+            env = {
+                PACKAGE_INSTALL_TARGET_ENV: "reflex-reviewer==0.1.6",
+            }
+
+            def fake_run_command(command, cwd=None):
+                _ = cwd
+                if command[:3] == [sys.executable, "-m", "venv"]:
+                    (venv_dir / "bin").mkdir(parents=True, exist_ok=True)
+                    (venv_dir / "bin" / "python").write_text("#!/usr/bin/env python3")
+
+            with patch(
+                "standalone_launcher.reflex_reviewer_bootstrap.run_command",
+                side_effect=fake_run_command,
+            ) as mocked_run:
+                bootstrap_runner_environment(
+                    sys.executable,
+                    runner_file,
+                    env,
+                )
+
+            self.assertEqual(mocked_run.call_count, 3)
+            self.assertEqual(
+                (venv_dir / BOOTSTRAP_STATE_FILE_NAME).read_text(encoding="utf-8"),
+                '{"package_extra_index_url": "", "package_index_url": "", "package_install_target": "reflex-reviewer==0.1.6"}',
+            )
+
+    def test_bootstrap_runner_environment_force_rebuilds(self):
+        with TemporaryDirectory() as temp_dir:
+            runner_file = str(
+                Path(temp_dir) / "standalone_launcher" / "reflex_reviewer_launcher.py"
+            )
+            venv_dir = Path(temp_dir) / "standalone_launcher" / ".reflex-reviewer-venv"
+            venv_python = venv_dir / "bin" / "python"
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.write_text("#!/usr/bin/env python3")
+            (venv_dir / BOOTSTRAP_STATE_FILE_NAME).write_text(
+                '{"package_extra_index_url": "", "package_index_url": "", "package_install_target": "reflex-reviewer"}'
+            )
+
+            env = {
+                FORCE_REBUILD_VENV_ENV: "1",
+                PACKAGE_INSTALL_TARGET_ENV: "reflex-reviewer",
+            }
+
+            def fake_run_command(command, cwd=None):
+                _ = cwd
+                if command[:3] == [sys.executable, "-m", "venv"]:
+                    (venv_dir / "bin").mkdir(parents=True, exist_ok=True)
+                    (venv_dir / "bin" / "python").write_text("#!/usr/bin/env python3")
+
+            with patch(
+                "standalone_launcher.reflex_reviewer_bootstrap.run_command",
+                side_effect=fake_run_command,
+            ) as mocked_run:
+                bootstrap_runner_environment(sys.executable, runner_file, env)
+
             self.assertEqual(mocked_run.call_count, 3)
 
 

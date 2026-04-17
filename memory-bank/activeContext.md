@@ -52,6 +52,7 @@
   - flow selection uses `RR_LAUNCHER_COMMAND`,
   - PR id wiring is documented via env (`PR_ID` and supported fallback env vars).
 - Launcher bootstrap now always recreates a fresh local runner venv on every execution and reinstalls package dependencies before invoking review/distill/refine.
+- Launcher bootstrap now reuses an existing healthy runner venv by default and rebuilds only when bootstrap fingerprint inputs change (`RR_PACKAGE_INSTALL_TARGET`, `RR_PACKAGE_INDEX_URL`, `RR_PACKAGE_EXTRA_INDEX_URL`), when venv is missing/broken, or when `RR_FORCE_REBUILD_VENV` is enabled.
 - Added standalone runner bootstrap env controls:
   - `RR_RUNNER_VENV_DIR`
   - `RR_PACKAGE_INSTALL_TARGET`

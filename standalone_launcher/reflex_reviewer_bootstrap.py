@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 PR_ID_ENV_CANDIDATES = (
@@ -20,9 +21,11 @@ RUNNER_VENV_DIR_ENV = "RR_RUNNER_VENV_DIR"
 PACKAGE_INSTALL_TARGET_ENV = "RR_PACKAGE_INSTALL_TARGET"
 PACKAGE_INDEX_URL_ENV = "RR_PACKAGE_INDEX_URL"
 PACKAGE_EXTRA_INDEX_URL_ENV = "RR_PACKAGE_EXTRA_INDEX_URL"
+FORCE_REBUILD_VENV_ENV = "RR_FORCE_REBUILD_VENV"
 
 DEFAULT_RUNNER_VENV_DIR_NAME = ".reflex-reviewer-venv"
 DEFAULT_PACKAGE_INSTALL_TARGET = "reflex-reviewer"
+BOOTSTRAP_STATE_FILE_NAME = ".bootstrap-state.json"
 
 
 class LauncherExecutionError(RuntimeError):
@@ -30,11 +33,11 @@ class LauncherExecutionError(RuntimeError):
 
 
 def launcher_log(message):
-    print(f"[reflex-reviewer-launcher] {message}")
+    print(f"[reflex-reviewer-launcher] {message}", flush=True)
 
 
 def launcher_error(message):
-    print(f"[reflex-reviewer-launcher] ERROR: {message}", file=sys.stderr)
+    print(f"[reflex-reviewer-launcher] ERROR: {message}", file=sys.stderr, flush=True)
 
 
 def run_command(command, cwd=None):
@@ -180,6 +183,63 @@ def resolve_package_install_target(environ=None):
     return target
 
 
+def _normalize_optional_env_value(raw_value):
+    return str(raw_value or "").strip()
+
+
+def resolve_bootstrap_state(environ=None):
+    env = environ or os.environ
+    return {
+        "package_install_target": resolve_package_install_target(env),
+        "package_index_url": _normalize_optional_env_value(env.get(PACKAGE_INDEX_URL_ENV)),
+        "package_extra_index_url": _normalize_optional_env_value(
+            env.get(PACKAGE_EXTRA_INDEX_URL_ENV)
+        ),
+    }
+
+
+def resolve_bootstrap_state_file(venv_dir):
+    return Path(venv_dir) / BOOTSTRAP_STATE_FILE_NAME
+
+
+def _read_bootstrap_state(state_file):
+    if not Path(state_file).exists():
+        return None
+    try:
+        return json.loads(Path(state_file).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_bootstrap_state(state_file, state):
+    state_path = Path(state_file)
+    try:
+        state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        raise LauncherExecutionError(
+            f"Failed to persist bootstrap state file: {state_path}"
+        ) from exc
+
+
+def _is_truthy_flag(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def should_force_rebuild(environ=None):
+    env = environ or os.environ
+    return _is_truthy_flag(env.get(FORCE_REBUILD_VENV_ENV))
+
+
+def should_rebuild_runner_venv(venv_dir, environ=None):
+    venv_python = resolve_venv_python(venv_dir)
+    if not venv_python.exists():
+        return True
+
+    expected_state = resolve_bootstrap_state(environ)
+    existing_state = _read_bootstrap_state(resolve_bootstrap_state_file(venv_dir))
+    return existing_state != expected_state
+
+
 def build_package_install_command(venv_python, environ=None):
     env = environ or os.environ
     target = resolve_package_install_target(env)
@@ -201,8 +261,18 @@ def build_package_install_command(venv_python, environ=None):
 def bootstrap_runner_environment(python_bin, runner_file, environ=None):
     env = environ or os.environ
     venv_dir = resolve_runner_venv_dir(runner_file, env)
+    venv_python = resolve_venv_python(venv_dir)
 
-    launcher_log(f"Preparing fresh virtual environment at: {venv_dir}")
+    if not should_force_rebuild(env) and not should_rebuild_runner_venv(venv_dir, env):
+        launcher_log(f"Reusing existing virtual environment at: {venv_dir}")
+        return str(venv_python)
+
+    if should_force_rebuild(env):
+        launcher_log(
+            f"Forced virtual environment rebuild enabled via {FORCE_REBUILD_VENV_ENV}."
+        )
+
+    launcher_log(f"Preparing virtual environment at: {venv_dir}")
     try:
         if venv_dir.exists():
             shutil.rmtree(venv_dir)
@@ -214,10 +284,10 @@ def bootstrap_runner_environment(python_bin, runner_file, environ=None):
 
     run_command(build_create_venv_command(python_bin, venv_dir))
 
-    venv_python = resolve_venv_python(venv_dir)
-    launcher_log("Installing Reflex Reviewer into fresh virtual environment.")
+    launcher_log("Installing Reflex Reviewer into virtual environment.")
     run_command(build_upgrade_pip_command(venv_python))
     run_command(build_package_install_command(venv_python, env))
+    _write_bootstrap_state(resolve_bootstrap_state_file(venv_dir), resolve_bootstrap_state(env))
     return str(venv_python)
 
 

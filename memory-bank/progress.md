@@ -38,6 +38,20 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated standalone launcher bootstrap to reuse virtualenv by default with explicit hard-refresh support:
+  - updated `standalone_launcher/reflex_reviewer_bootstrap.py`:
+    - added bootstrap-state fingerprint persistence via `.bootstrap-state.json` inside runner venv,
+    - default behavior now reuses healthy existing venv when bootstrap inputs match,
+    - rebuild now triggers when venv is missing/broken, bootstrap fingerprint changes, or `RR_FORCE_REBUILD_VENV` is truthy,
+    - added env flag support: `RR_FORCE_REBUILD_VENV=1|true|yes|on`.
+  - updated launcher bootstrap tests in `standalone_launcher/tests/test_reflex_reviewer_bootstrap.py`:
+    - added coverage for venv reuse on matching state,
+    - added coverage for rebuild on state change,
+    - added coverage for forced rebuild path.
+  - updated `README.md` standalone launcher docs:
+    - replaced always-fresh bootstrap wording with reuse-first policy,
+    - documented new optional env var `RR_FORCE_REBUILD_VENV`.
+
 - Standardized deployment documentation to launcher-only env wiring:
   - updated `README.md` section `## 6) VCS pipeline steps` so deployment examples use only:
     - `python3 reflex_reviewer_launcher.py`

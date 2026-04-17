@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reflex-reviewer"
-version = "0.1.8"
+version = "0.1.10"
 description = "Automated AI code review loop for VCS pull requests"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,10 +36,11 @@ reflex-review = "reflex_reviewer.review:run"
 reflex-distill = "reflex_reviewer.distill:run"
 reflex-refine = "reflex_reviewer.refine:run"
 
-[tool.hatch.build]
-include = [
-  "**/*",
-]
-
 [tool.hatch.build.targets.wheel]
 packages = ["reflex_reviewer"]
+include = [
+  "reflex_reviewer/prompts/**/*.md",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"reflex_reviewer.toml" = "reflex_reviewer.toml"
