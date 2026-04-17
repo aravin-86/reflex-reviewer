@@ -53,7 +53,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 PR_ID_INPUT=""
-if [[ $# -gt 0 && "${1}" =~ ^[0-9]+$ ]]; then
+if [[ $# -gt 0 && rr_is_pr_id_token "${1}" ]]; then
   PR_ID_INPUT="$1"
   shift
 fi

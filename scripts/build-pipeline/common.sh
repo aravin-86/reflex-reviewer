@@ -316,8 +316,14 @@ rr_require_runtime_installation() {
 
 rr_resolve_pr_id() {
   local arg_pr_id="${1:-}"
+  local normalized_pr_id
+
   if [[ -n "${arg_pr_id}" ]]; then
-    echo "${arg_pr_id}"
+    if normalized_pr_id="$(rr_normalize_pr_id "${arg_pr_id}")"; then
+      echo "${normalized_pr_id}"
+    else
+      echo "${arg_pr_id}"
+    fi
     return 0
   fi
 
@@ -333,12 +339,42 @@ rr_resolve_pr_id() {
   for key in "${env_candidates[@]}"; do
     local value="${!key-}"
     if [[ -n "${value:-}" ]]; then
-      echo "${value}"
+      if normalized_pr_id="$(rr_normalize_pr_id "${value}")"; then
+        echo "${normalized_pr_id}"
+      else
+        echo "${value}"
+      fi
       return 0
     fi
   done
 
   return 1
+}
+
+rr_normalize_pr_id() {
+  local raw_pr_id="${1:-}"
+  raw_pr_id="$(printf '%s' "${raw_pr_id}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+  if [[ -z "${raw_pr_id}" ]]; then
+    return 1
+  fi
+
+  if [[ "${raw_pr_id}" =~ ^[0-9]+$ ]]; then
+    echo "${raw_pr_id}"
+    return 0
+  fi
+
+  if [[ "${raw_pr_id}" =~ ^[^-]+-([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
+}
+
+rr_is_pr_id_token() {
+  local raw_pr_id="${1:-}"
+  rr_normalize_pr_id "${raw_pr_id}" >/dev/null
 }
 
 rr_validate_pr_id() {
