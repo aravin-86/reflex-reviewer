@@ -33,10 +33,10 @@
 - Review hooks run on PR create/update.
 - Distill hooks run post-merge or on chosen trigger.
 - Refine runs on monthly schedule or on-demand trigger once sufficient DPO data exists.
-- Build Pipeline scripts follow setup-first bootstrap:
-  - `setup-pipeline-runtime.sh` supports install-mode toggle via `RR_PIPELINE_INSTALL_MODE`:
-    - `package` (default): creates/updates runtime virtualenv and installs `RR_PACKAGE_INSTALL_TARGET` via pip,
-    - `clone`: fresh clones from `RR_REPOSITORY_CLONE_URL` and installs dependencies from cloned `requirements.txt`.
-  - `review-step.sh` / `distill-step.sh` / `refine-step.sh` are mode-aware:
-    - clone mode requires prepared checkout/runtime and validates repository layout,
-    - package mode runs without repository checkout and validates installed package/runtime.
+- Standalone launcher orchestration for build automation is copy-friendly and env-driven:
+  - `standalone_launcher/reflex_reviewer_launcher.py` is the user-facing entrypoint and command dispatcher (`review`, `distill`, `refine`).
+  - `standalone_launcher/reflex_reviewer_bootstrap.py` contains shared validation, PR-id resolution, command builders, and runtime bootstrap helpers.
+  - Runner entrypoint: `python3 reflex_reviewer_launcher.py`.
+  - Command can be supplied by env via `RR_LAUNCHER_COMMAND` with optional `RR_LAUNCHER_ARGS` passthrough.
+  - Launcher always recreates a fresh local venv and reinstalls package dependencies before flow execution.
+  - Console script `reflex-pipeline` is removed from packaging metadata.

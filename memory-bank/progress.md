@@ -3,11 +3,9 @@
 ## Current status
 - ✅ Memory bank initialized with core documentation files.
 - ✅ Baseline project context captured from repository structure, README, and package metadata.
-- ✅ Build Pipeline repository-committed pipeline step scripts added for review/distill/refine lifecycle execution.
-- ✅ README expanded with Build Pipeline pipeline-step setup and architecture best-practice guidance.
-- ✅ Build Pipeline runtime hardening added with dedicated virtualenv bootstrap and fail-fast dependency/runtime checks.
-- ✅ Build Pipeline setup-first bootstrap now centralizes clone/runtime prep in setup script; execution step scripts require prepared checkout/runtime.
-- ✅ Build Pipeline runtime now supports install-mode toggle with **package install as default** and clone as explicit opt-in.
+- ✅ Pipeline orchestration migrated to a copy-friendly standalone launcher/bootstrap pair (`reflex_reviewer_launcher.py` + `reflex_reviewer_bootstrap.py`) with env-only command mode.
+- ✅ Clone-mode runtime support removed from config/runtime/docs.
+- ✅ Shell script support for Build Pipeline removed from repository.
 - ✅ Severity taxonomy enforcement added across review/distill flows (`CRITICAL|MAJOR|ADVISORY`) with test-file comments forced to `ADVISORY`.
 - ✅ Local/unit test bootstrap unblocked in this environment using isolated virtualenv + explicit dependency install path.
 
@@ -19,26 +17,15 @@
 - Distillation batched sentiment payload now carries normalized bot-comment severity metadata.
 - Refinement flow to run DPO-style training cycles from generated datasets.
 - Bitbucket VCS integration and LLM API/OAuth2-based model access infrastructure.
-- Build Pipeline shell wrappers to run from build pipeline steps:
-  - `review-step.sh` on PR open/update,
-  - `distill-step.sh` on post-merge events,
-  - `refine-step.sh` on monthly/on-demand triggers.
-- Build Pipeline runtime bootstrap script:
-  - `setup-pipeline-runtime.sh` to create/update dedicated venv and install runtime using selected mode:
-    - `package` (default): pip install from `RR_PACKAGE_INSTALL_TARGET`,
-    - `clone`: fresh clone + install from cloned `requirements.txt`.
-- Build Pipeline setup-first bootstrap behavior:
-  - `RR_PIPELINE_INSTALL_MODE` controls runtime mode (`package` default or `clone`),
-  - `RR_PACKAGE_INSTALL_TARGET` controls package-mode pip target,
-  - in clone mode: `RR_REPOSITORY_CLONE_URL` required, optional `RR_REPOSITORY_DIR`/`RR_REPOSITORY_REF`, and setup always fresh-clones,
-  - review/distill/refine scripts do not clone,
-  - in clone mode scripts fail fast unless setup has prepared checkout/runtime,
-  - in package mode scripts run without repository checkout and validate installed package/runtime.
-- Pipeline step preflight validations:
-  - Python version check (3.9+),
-  - required module import checks,
-  - repository layout checks,
-  - data directory writability checks (distill/refine).
+- Unified standalone launcher runner:
+  - `RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py`
+  - `RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py`
+  - `RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py`
+  - optional arg passthrough: `RR_LAUNCHER_ARGS='...'`
+- Launcher step preflight validations in Python:
+  - required env vars (including auth path),
+  - PR ID resolution/validation,
+  - training data directory writability checks (distill/refine).
 
 ## Remaining/ongoing work areas (product-level)
 - Expand integrations and routing sophistication over time.
@@ -51,6 +38,145 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Standardized deployment documentation to launcher-only env wiring:
+  - updated `README.md` section `## 6) VCS pipeline steps` so deployment examples use only:
+    - `python3 reflex_reviewer_launcher.py`
+    - `RR_LAUNCHER_COMMAND=review|distill|refine`
+    - env-based PR id wiring (`PR_ID` and supported fallback env vars)
+  - removed mixed deployment guidance that relied on direct module invocation in deployment examples.
+  - clarified `reflex_reviewer_bootstrap.py` is an internal helper and launcher is the only direct entrypoint for deployment jobs.
+  - updated `README.md` reuse examples to remain env-only for `review`/`distill`/`refine` launcher runs.
+  - updated `memory-bank/activeContext.md` to reflect launcher-only deployment examples and removed the corresponding pending-next-update item.
+
+- Moved standalone launcher tests next to standalone launcher modules:
+  - moved `tests/test_reflex_reviewer_launcher.py` -> `standalone_launcher/tests/test_reflex_reviewer_launcher.py`
+  - moved `tests/test_reflex_reviewer_bootstrap.py` -> `standalone_launcher/tests/test_reflex_reviewer_bootstrap.py`
+  - updated `README.md` unit-test examples to include launcher test execution from `standalone_launcher/tests`
+  - updated `memory-bank/activeContext.md` to reflect launcher-test colocation under `standalone_launcher/tests/`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s standalone_launcher/tests`
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s tests`
+    - Result: launcher tests `Ran 22 tests ... OK`; package tests `Ran 97 tests ... OK`.
+
+- Standalone launcher terminology cleanup across launcher/bootstrap, tests, and docs:
+  - updated standalone launcher module symbols to remove `pipeline` wording:
+    - `PipelineExecutionError` -> `LauncherExecutionError`
+    - `pipeline_log` -> `launcher_log`
+    - `pipeline_error` -> `launcher_error`
+    - `require_pipeline_env` -> `require_launcher_env`
+    - `SUPPORTED_PIPELINE_COMMANDS` -> `SUPPORTED_LAUNCHER_COMMANDS`
+    - `_normalize_pipeline_command` -> `_normalize_launcher_command`
+    - `_resolve_pipeline_command` -> `_resolve_launcher_command`
+  - switched launcher env vars to launcher naming:
+    - `RR_PIPELINE_COMMAND` -> `RR_LAUNCHER_COMMAND`
+    - `RR_PIPELINE_ARGS` -> `RR_LAUNCHER_ARGS`
+  - updated standalone launcher tests:
+    - renamed test class names from `Pipeline...` to `Launcher...`
+    - aligned env-based test fixtures to `RR_LAUNCHER_*`
+  - updated docs and memory-bank references for standalone launcher env names:
+    - `README.md`
+    - `memory-bank/activeContext.md`
+    - `memory-bank/systemPatterns.md`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_reflex_reviewer_launcher tests.test_reflex_reviewer_bootstrap`
+    - Result: `Ran 22 tests ... OK`.
+
+- Renamed standalone launcher folder and aligned test-module naming with launcher/bootstrap modules:
+  - renamed folder:
+    - `pipeline_runner/` -> `standalone_launcher/`
+  - removed package marker:
+    - `standalone_launcher/__init__.py`
+  - launcher/bootstrap tests renamed to match current module names:
+    - `tests/test_pipeline_entrypoint.py` -> `tests/test_reflex_reviewer_launcher.py`
+    - `tests/test_pipeline_runtime.py` -> `tests/test_reflex_reviewer_bootstrap.py`
+  - updated references/imports/patch targets to `standalone_launcher.*` in test modules and docs.
+  - updated docs/context files:
+    - `README.md`
+    - `memory-bank/activeContext.md`
+    - `memory-bank/systemPatterns.md`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_reflex_reviewer_launcher tests.test_reflex_reviewer_bootstrap`
+    - Result: `Ran 22 tests ... OK`.
+
+- Renamed and upgraded standalone pipeline runner for true run-anywhere behavior:
+  - added new modules:
+    - `pipeline_runner/reflex_reviewer_launcher.py`
+    - `pipeline_runner/reflex_reviewer_bootstrap.py`
+  - removed old module names:
+    - `pipeline_runner/run_reflex_reviewer.py`
+    - `pipeline_runner/reflex_reviewer_runtime.py`
+  - launcher behavior now auto-bootstraps runtime internally on every execution:
+    - always deletes existing runner venv,
+    - creates a fresh venv,
+    - upgrades pip,
+    - installs package target before invoking review/distill/refine.
+  - added runner bootstrap env controls:
+    - `RR_RUNNER_VENV_DIR`
+    - `RR_PACKAGE_INSTALL_TARGET`
+    - `RR_PACKAGE_INDEX_URL`
+    - `RR_PACKAGE_EXTRA_INDEX_URL`
+  - updated tests to new module names and bootstrap behavior:
+    - `tests/test_pipeline_entrypoint.py`
+    - `tests/test_pipeline_runtime.py`
+  - updated docs:
+    - `README.md`
+    - `.gitignore` (`.reflex-reviewer-venv/`)
+    - `memory-bank/activeContext.md`
+    - `memory-bank/systemPatterns.md`
+
+- Refactored pipeline wrappers into a standalone copy-friendly folder and renamed files per build-pipeline needs:
+  - added:
+    - `pipeline_runner/run_reflex_reviewer.py`
+    - `pipeline_runner/reflex_reviewer_runtime.py`
+    - `pipeline_runner/__init__.py`
+  - removed old modules:
+    - `reflex_reviewer/pipeline_entrypoint.py`
+    - `reflex_reviewer/pipeline_runtime.py`
+  - command dispatch is now env-driven:
+    - `RR_PIPELINE_COMMAND=review|distill|refine`
+    - optional `RR_PIPELINE_ARGS` for PR id and extra args
+  - removed pipeline console script from `pyproject.toml`:
+    - deleted `reflex-pipeline` from `[project.scripts]`
+  - updated pipeline tests to import new runner/runtime modules:
+    - `tests/test_pipeline_entrypoint.py`
+    - `tests/test_pipeline_runtime.py`
+  - updated README pipeline docs to standalone runner usage and env-only execution examples.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_pipeline_entrypoint tests.test_pipeline_runtime`
+    - Result: `Ran 15 tests ... OK`.
+
+- Renamed pipeline helper module for clearer responsibility naming:
+  - `reflex_reviewer/pipeline_execution.py` -> `reflex_reviewer/pipeline_runtime.py`.
+  - Updated import in `reflex_reviewer/pipeline_entrypoint.py` to `pipeline_runtime`.
+  - Renamed unit test module `tests/test_pipeline_execution.py` -> `tests/test_pipeline_runtime.py` and updated imports/class naming.
+  - Updated memory-bank references in `memory-bank/activeContext.md` and `memory-bank/systemPatterns.md`.
+  - Verification command updated to use `tests.test_pipeline_runtime` for targeted pipeline tests.
+
+- Removed clone-mode and shell-script pipeline support; simplified to package-only entrypoint:
+  - removed legacy pipeline modules:
+    - `reflex_reviewer/pipeline_cli.py`
+    - `reflex_reviewer/pipeline_runtime.py`
+  - added renamed focused modules:
+    - `reflex_reviewer/pipeline_entrypoint.py`
+    - `reflex_reviewer/pipeline_execution.py`
+  - removed shell scripts:
+    - `scripts/build-pipeline/common.sh`
+    - `scripts/build-pipeline/setup-pipeline-runtime.sh`
+    - `scripts/build-pipeline/review-step.sh`
+    - `scripts/build-pipeline/distill-step.sh`
+    - `scripts/build-pipeline/refine-step.sh`
+  - removed `[pipeline_runtime]` section from `reflex_reviewer.toml`.
+  - removed `get_pipeline_runtime_config(...)` from `reflex_reviewer/config.py` and related tests.
+  - added single package entrypoint in `pyproject.toml`:
+    - `reflex-pipeline`
+  - updated docs/examples in `README.md` and `.env.example` to package-only pipeline invocation.
+  - added unit coverage:
+    - `tests/test_pipeline_entrypoint.py`
+    - `tests/test_pipeline_execution.py`
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_pipeline_entrypoint tests.test_pipeline_execution tests.test_config_runtime_overrides`
+  - Result: `Ran 32 tests ... OK`.
+
 - Added configurable LLM API read-timeout control through centralized config and docs:
   - updated `reflex_reviewer.toml` `[llm_api]`:
     - added `read_timeout_seconds` with env-backed default: `${LLM_API_READ_TIMEOUT_SECONDS|-30}`.

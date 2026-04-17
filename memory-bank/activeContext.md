@@ -1,9 +1,8 @@
 # Active Context
 
 ## Current focus
-- Keep Build Pipeline execution simple with setup-first repository/runtime bootstrapping.
-- Ensure Build Pipeline step scripts support both package-installed and clone-based runtime execution, with package install as the default mode.
-- Keep runtime setup hardened for Build Pipeline runner hosts using mode-aware virtualenv bootstrap and fail-fast checks.
+- Keep Build Pipeline usage copy-friendly with a standalone two-file Python runner.
+- Keep pipeline orchestration simple: run only `review`, `distill`, and `refine`.
 - Keep local unit-test bootstrap deterministic under PEP 668 environments via isolated virtualenv usage.
 - Enforce strict inline comment severity taxonomy in review/distill flows:
   - allowed severities: `CRITICAL`, `MAJOR`, `ADVISORY`
@@ -16,16 +15,18 @@
   - `distill` (feedback signal extraction)
   - `refine` (DPO-oriented optimization)
 - Core package: `reflex_reviewer/`
-- Build Pipeline script wrappers available under `scripts/build-pipeline/`:
-  - `common.sh`
-  - `review-step.sh`
-  - `distill-step.sh`
-  - `refine-step.sh`
-  - `setup-pipeline-runtime.sh`
+- Copy-friendly standalone launcher folder:
+  - `standalone_launcher/reflex_reviewer_launcher.py` (user-facing env-driven dispatch + step execution)
+  - `standalone_launcher/reflex_reviewer_bootstrap.py` (shared validation/command builders + runtime bootstrap)
+  - `standalone_launcher/tests/` (launcher/bootstrap unit tests colocated with standalone launcher modules)
+- Standalone launcher invocation:
+  - `RR_LAUNCHER_COMMAND=review|distill|refine python3 reflex_reviewer_launcher.py`
+  - optional passthrough args: `RR_LAUNCHER_ARGS='...'`
+- Build Pipeline shell scripts are removed from tracked repository files.
 - README now includes:
   - required env/auth variables,
-  - event-to-script architecture guidance,
-  - pipeline-runner runtime bootstrap instructions,
+  - standalone runner usage (`reflex_reviewer_launcher.py` + env-only mode),
+  - launcher-only deployment examples (`reflex_reviewer_launcher.py`) with env-only wiring,
   - explicit VCS support status: Bitbucket Data Center only (current) and GitHub as next target.
 
 ## Important implementation preferences/rules (repo-local)
@@ -35,30 +36,28 @@
 
 ## Decisions captured in this update
 - Build Pipeline native repository hooks are not supported for this integration model.
-- Keep pipeline step scripts as thin shell wrappers around existing Python module entry points.
+- Pipeline execution is now package-only; clone mode is removed.
 - Keep runtime value resolution centralized through env + `reflex_reviewer.toml` + `config.py`.
 - Use asynchronous monthly/on-demand triggering for refine to avoid tying model training to synchronous PR lifecycle latency.
-- Use `requirements.txt` for pipeline-runner runtime dependency installation in cloned repo local `.venv` (overrideable via `RR_VENV_DIR`).
-- Add fail-fast runtime checks in Build Pipeline scripts for Python version, required module imports, repository layout, and data-directory writability.
-- Prefer runtime auto-discovery via mode defaults with `PYTHON_BIN` / `RR_VENV_DIR` overrides:
-  - package mode default: `<cwd>/.reflex-reviewer-venv/bin/python`,
-  - clone mode default: `<repo>/.venv/bin/python`.
-- `setup-pipeline-runtime.sh` is now the only script that clones `RR_REPOSITORY_CLONE_URL` into `RR_REPOSITORY_DIR`.
-- Setup clone flow always removes `RR_REPOSITORY_DIR` (when present) and performs a fresh clone for deterministic execution.
-- Step scripts (`review-step.sh` / `distill-step.sh` / `refine-step.sh`) no longer clone/re-exec; they fail fast unless setup has prepared repository/runtime.
-- Optional clone target selection supported via `RR_REPOSITORY_REF` (branch/tag).
-- Build Pipeline runtime bootstrap now supports install-mode toggle via `RR_PIPELINE_INSTALL_MODE`:
-  - `package` (default): `setup-pipeline-runtime.sh` installs `RR_PACKAGE_INSTALL_TARGET` into runtime venv without repository clone,
-  - `clone`: setup performs fresh clone using `RR_REPOSITORY_CLONE_URL`, then installs from cloned `requirements.txt`.
-- Build Pipeline package-mode install source is now configurable and defaults to TestPyPI-first resolution:
-  - `RR_PACKAGE_INDEX_URL` default: `https://test.pypi.org/simple/`
-  - `RR_PACKAGE_EXTRA_INDEX_URL` default: `https://pypi.org/simple/`
-  - package-mode setup now passes these as `pip --index-url` and `--extra-index-url`.
-- Step scripts now branch by install mode:
-  - clone mode requires prepared repository checkout and validates repository layout,
-  - package mode skips repository checkout requirement and validates installed package/runtime only.
-- Runtime/setup docs and examples now reflect package mode as default with clone mode as explicit opt-in.
-- Pipeline runtime resolver now logs selected interpreter path with minimal safe verbosity.
+- Pipeline runtime setup helpers and install-mode config are removed.
+- Shell script support for Build Pipeline is removed completely.
+- Unified standalone launcher entrypoint is `python3 reflex_reviewer_launcher.py`.
+- Command selection now supports env-only mode via `RR_LAUNCHER_COMMAND`.
+- Optional env arg passthrough is supported via `RR_LAUNCHER_ARGS`.
+- Standalone launcher/bootstrap module naming is now explicit:
+  - `reflex_reviewer_launcher.py` is the only user-facing entrypoint,
+  - `reflex_reviewer_bootstrap.py` is an internal helper used by launcher.
+- README deployment examples are now standardized to launcher-only env wiring:
+  - deployment step commands use only `python3 reflex_reviewer_launcher.py`,
+  - flow selection uses `RR_LAUNCHER_COMMAND`,
+  - PR id wiring is documented via env (`PR_ID` and supported fallback env vars).
+- Launcher bootstrap now always recreates a fresh local runner venv on every execution and reinstalls package dependencies before invoking review/distill/refine.
+- Added standalone runner bootstrap env controls:
+  - `RR_RUNNER_VENV_DIR`
+  - `RR_PACKAGE_INSTALL_TARGET`
+  - `RR_PACKAGE_INDEX_URL`
+  - `RR_PACKAGE_EXTRA_INDEX_URL`
+- `pyproject.toml` no longer exposes a `reflex-pipeline` console script.
 - Review flow now normalizes model-returned severities and coerces test-file comments to `ADVISORY` before posting.
 - Review flow now builds prompt context from **root comments only** (both human and bot), excludes replies, and excludes summary comments.
 - Existing root bot comments in prompt context now include parsed severity and anchor metadata (`file`, `line`) when available.
@@ -128,14 +127,23 @@
 - Removed legacy provider-specific client shim file from `reflex_reviewer/` and kept only `reflex_reviewer/llm_api_client.py` as the runtime client module.
 - Removed old provider-compatibility config aliases/fallbacks from `reflex_reviewer/config.py` so runtime/env/TOML resolution is now strictly `llm_api` scoped.
 - Updated sample/test endpoint strings to provider-neutral naming and revalidated with targeted tests in repo venv.
-- Pipeline runtime config now includes package index URL keys under `[pipeline_runtime]` in `reflex_reviewer.toml`:
-  - `package_index_url`
-  - `package_extra_index_url`
-- `get_pipeline_runtime_config(...)` now resolves and normalizes package index URL overrides:
-  - `rr_package_index_url`
-  - `rr_package_extra_index_url` (empty value normalizes to `None`, which disables extra index usage).
-- Build Pipeline docs and examples now document package-mode index defaults and env controls in `README.md` and `.env.example`.
-- Added unit coverage in `tests/test_config_runtime_overrides.py` for pipeline runtime package index URL defaults and env/CLI override precedence.
+- Removed obsolete pipeline runtime config section from `reflex_reviewer.toml` and corresponding config/test coverage.
+- Added pipeline unit coverage:
+  - `standalone_launcher/tests/test_reflex_reviewer_launcher.py`
+  - `standalone_launcher/tests/test_reflex_reviewer_bootstrap.py`
+- Standalone launcher unit tests are now colocated with launcher modules under `standalone_launcher/tests/`.
+- Local verification now runs launcher tests via `python -m unittest discover -s standalone_launcher/tests`.
+- Pipeline helper module naming updated for clarity:
+  - renamed `reflex_reviewer/pipeline_execution.py` -> `reflex_reviewer/pipeline_runtime.py`,
+  - updated `pipeline_entrypoint.py` import to `pipeline_runtime`,
+  - renamed `tests/test_pipeline_execution.py` -> `tests/test_reflex_reviewer_bootstrap.py`.
+
+- Standalone launcher folder naming is now aligned to run-anywhere usage:
+  - renamed folder `pipeline_runner/` -> `standalone_launcher/`,
+  - removed `standalone_launcher/__init__.py` (namespace-style import/direct-script compatibility retained),
+  - renamed tests to match module names:
+    - `tests/test_pipeline_entrypoint.py` -> `tests/test_reflex_reviewer_launcher.py`,
+    - `tests/test_pipeline_runtime.py` -> `tests/test_reflex_reviewer_bootstrap.py`.
 - Review prompt context now includes a concrete `Purpose` field (no unresolved placeholder) built from PR metadata:
   - format prioritizes `PR Title` plus PR description sections `Summary` and `Changes`,
   - `Test Results` section is intentionally ignored in purpose derivation,
@@ -154,8 +162,6 @@
   - unit coverage added in `tests/test_config_runtime_overrides.py` for default/env/override timeout behavior.
 
 ## Next likely updates
-- Add deployment-specific examples showing host paths for `RR_REPOSITORY_DIR` and venv placement.
-- Add automated shell tests for setup-first bootstrap and step precondition behavior in pipeline scripts.
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).
 - Plan and implement vector-DB-backed preference memory from distilled DPO pairs for on-the-fly review guidance (retrieve accepted/rejected exemplars during `review`, keep `refine` as offline optimization).
 - Add dedicated unit coverage for judge-stage payload quality constraints (for example, verifying invalid anchor removal and schema-safe rewriting behavior).

@@ -32,9 +32,8 @@ It's called **Reflex** because, like a ***human reflex***, the improvement is au
     - [`reflex_reviewer/vcs/bitbucket_data_center.py`](#reflex_reviewervcsbitbucket_data_centerpy)
     - [`reflex_reviewer/llm_api_client.py`](#reflex_reviewerllm_api_clientpy)
   - [5) Runtime configuration (CLI)](#5-runtime-configuration-cli)
-  - [6) VCS pipeline steps](#6-vcs-pipeline-steps)
-    - [Build Pipeline step scripts (repository-committed)](#build-pipeline-step-scripts-repository-committed)
-    - [Best-practice Build Pipeline step architecture](#best-practice-build-pipeline-step-architecture)
+  - [6) Standalone launcher deployment (CI/pipeline)](#6-standalone-launcher-deployment-cipipeline)
+    - [Standalone launcher (`reflex_reviewer_launcher.py`)](#standalone-launcher-reflex_reviewer_launcherpy)
   - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
     - [Install from TestPyPI](#install-from-testpypi)
     - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
@@ -250,47 +249,44 @@ For all environment variables, default values, and env interpolation behavior, r
 
 ---
 
-## 6) VCS pipeline steps
+## 6) Standalone launcher deployment (CI/pipeline)
 
-Reflex Reviewer is designed around three generic pipeline step trigger types:
+Deployment examples below use a single entrypoint only:
 
-1. **PR create/update pipeline step**
-   - Runs review flow:
-   - `python3 -m reflex_reviewer.review --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --judge-model "<JUDGE_MODEL>"`
+- `python3 reflex_reviewer_launcher.py`
 
-2. **Post-merge pipeline step (target branch updates)**
-   - Runs distill flow:
-   - `python3 -m reflex_reviewer.distill --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+Flow selection and runtime wiring are fully env-driven:
 
-3. **Monthly/on-demand pipeline step**
-   - Runs refine flow:
-   - `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+- command selector: `RR_LAUNCHER_COMMAND=review|distill|refine`
+- PR id source for `review`/`distill`: `PR_ID` (or other supported PR env candidates)
+- optional passthrough args (still env-only): `RR_LAUNCHER_ARGS='...'`
 
-### Build Pipeline step scripts (repository-committed)
+### Standalone launcher (`reflex_reviewer_launcher.py`)
 
-Commit these scripts in your repository and invoke them from build pipeline steps.
+For copy-friendly build pipeline usage, copy these two files into your pipeline workspace:
 
-This repository includes Build Pipeline-oriented shell wrappers under:
+- `standalone_launcher/reflex_reviewer_launcher.py`
+- `standalone_launcher/reflex_reviewer_bootstrap.py`
 
-- `scripts/build-pipeline/review-step.sh`
-- `scripts/build-pipeline/distill-step.sh`
-- `scripts/build-pipeline/refine-step.sh`
+Run only the launcher. It internally imports and uses the bootstrap module.
 
-Shared helper:
+On every launcher run, bootstrap behavior is deterministic:
+- delete existing runner venv (if present),
+- create a fresh venv,
+- install/upgrade required package dependencies,
+- run selected flow command using the fresh venv interpreter.
 
-- `scripts/build-pipeline/common.sh`
+Run with a single command (env-driven mode):
 
-Runtime bootstrap utility:
+- `RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py`
+- `RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py`
+- `RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py`
 
-- `scripts/build-pipeline/setup-pipeline-runtime.sh`
+Optional env arg passthrough (for PR id and other flow-specific CLI args):
 
-What each script runs:
+- `RR_LAUNCHER_ARGS='123 --stream-response false'`
 
-- `review-step.sh` → `python3 -m reflex_reviewer.review ... --pr-id <PR_ID>`
-- `distill-step.sh` → `python3 -m reflex_reviewer.distill ... --pr-id <PR_ID> --dpo-training-data-dir <DIR>`
-- `refine-step.sh` → `python3 -m reflex_reviewer.refine ... --dpo-training-data-dir <DIR>`
-
-PR id resolution (`review-step.sh` and `distill-step.sh`) follows this order:
+PR id resolution (`review` and `distill`) follows this order:
 
 1. first positional argument
 2. `PR_ID`
@@ -301,119 +297,67 @@ PR id resolution (`review-step.sh` and `distill-step.sh`) follows this order:
 
 Required environment variables:
 
-- `TEAM_NAME`
-- `DRAFT_MODEL` (required by all flows; in review it generates the draft payload)
-- `JUDGE_MODEL` (required by `review-step.sh`; verifies evidence and finalizes draft into review payload)
-- `LLM_API_BASE_URL`
-- `VCS_BASE_URL`
-- `VCS_PROJECT_KEY`
-- `VCS_REPO_SLUG`
-- `VCS_TOKEN`
-- `DPO_TRAINING_DATA_DIR` (required by `distill-step.sh` and `refine-step.sh`)
+- Required by all runner commands:
+  - `TEAM_NAME`
+  - `DRAFT_MODEL`
+  - `LLM_API_BASE_URL`
+  - `VCS_BASE_URL`
+  - `VCS_PROJECT_KEY`
+  - `VCS_REPO_SLUG`
+  - `VCS_TOKEN`
+- Required by `review`:
+  - `JUDGE_MODEL`
+- Required by `distill` and `refine`:
+  - `DPO_TRAINING_DATA_DIR`
 
 LLM API auth configuration (choose one):
 
 - `LLM_API_KEY`, or
 - `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
 
-Required for setup step only:
-
-- `RR_REPOSITORY_CLONE_URL` (only when `RR_PIPELINE_INSTALL_MODE=clone`)
-
 Optional:
 
 - `LLM_API_PROXY_URL` (optional proxy for outbound LLM API calls)
-- `RR_PIPELINE_INSTALL_MODE` (`package` default, or `clone`)
-- `RR_PACKAGE_INSTALL_TARGET` (pip install target used in package mode; default `reflex-reviewer`)
-- `RR_PACKAGE_INDEX_URL` (package mode primary pip index URL; default `https://test.pypi.org/simple/`)
-- `RR_PACKAGE_EXTRA_INDEX_URL` (package mode extra pip index URL; default `https://pypi.org/simple/`; leave empty to disable)
-- `RR_REPOSITORY_DIR` (clone mode prepared checkout dir; defaults to `<cwd>/.reflex-reviewer-clone`)
-- `RR_REPOSITORY_REF` (optional branch/tag for clone mode via `git clone --branch`)
-- `PYTHON_BIN` (optional explicit interpreter override)
-- `RR_VENV_DIR` (optional explicit venv-dir override; resolved as `<RR_VENV_DIR>/bin/python`)
-- Default runtime without overrides:
-  - package mode: `<cwd>/.reflex-reviewer-venv/bin/python`
-  - clone mode: `<repo>/.venv/bin/python`
-
-Build Pipeline setup behavior:
-
-- `setup-pipeline-runtime.sh` supports two runtime modes:
-  - `package` mode (default): creates/uses venv and installs `RR_PACKAGE_INSTALL_TARGET` with pip using:
-    - `RR_PACKAGE_INDEX_URL` (default `https://test.pypi.org/simple/`),
-    - `RR_PACKAGE_EXTRA_INDEX_URL` (default `https://pypi.org/simple/`, optional).
-  - `clone` mode: performs fresh clone, then installs dependencies from cloned `requirements.txt`.
-- Step scripts (`review-step.sh`, `distill-step.sh`, `refine-step.sh`) do not clone.
-- In `clone` mode, step scripts require prepared checkout/runtime and fail fast if missing.
-
-Runtime bootstrap for pipeline runner hosts:
-
-```bash
-# Default package mode: install runtime package in venv
-./scripts/build-pipeline/setup-pipeline-runtime.sh
-
-# Package mode with explicit pinned target
-RR_PACKAGE_INSTALL_TARGET="reflex-reviewer==0.1.3" ./scripts/build-pipeline/setup-pipeline-runtime.sh
-
-# Package mode with explicit package indexes
-RR_PACKAGE_INDEX_URL="https://test.pypi.org/simple/" \
-RR_PACKAGE_EXTRA_INDEX_URL="https://pypi.org/simple/" \
-./scripts/build-pipeline/setup-pipeline-runtime.sh
-
-# Clone mode (requires clone URL)
-RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_CLONE_URL="<REPO_CLONE_URL>" ./scripts/build-pipeline/setup-pipeline-runtime.sh
-
-# Optional custom venv location
-./scripts/build-pipeline/setup-pipeline-runtime.sh --venv-dir /opt/reflex-reviewer/venv
-```
-
-What setup validates:
-
-- Python 3.9+
-- importability of runtime modules (`openai`, `requests`, `tenacity`, `dotenv`, `authlib`)
-- `reflex_reviewer` package import from selected runtime
-
-Each pipeline step script performs fail-fast checks before execution:
-
-- repository layout checks (`requirements.txt`, `reflex_reviewer/`) in clone mode only
-- runtime import checks for required Python modules
-- data directory creation/writability checks for distill/refine
+- `PYTHON_BIN` (optional bootstrap interpreter override)
+- `RR_LAUNCHER_ARGS` (optional env-based argument passthrough)
+- `RR_RUNNER_VENV_DIR` (optional venv directory; default: `./.reflex-reviewer-venv` next to launcher)
+- `RR_PACKAGE_INSTALL_TARGET` (optional pip install target; default: `reflex-reviewer`)
+- `RR_PACKAGE_INDEX_URL` (optional pip `--index-url` override)
+- `RR_PACKAGE_EXTRA_INDEX_URL` (optional pip `--extra-index-url` override)
 
 Example invocations:
 
 ```bash
-# setup first (default package mode)
-./scripts/build-pipeline/setup-pipeline-runtime.sh
+# Shared env for all deployment steps
+export TEAM_NAME="<TEAM_NAME>"
+export DRAFT_MODEL="<DRAFT_MODEL>"
+export JUDGE_MODEL="<JUDGE_MODEL>"             # required by review
+export LLM_API_BASE_URL="<LLM_API_BASE_URL>"
+export VCS_BASE_URL="<VCS_BASE_URL>"
+export VCS_PROJECT_KEY="<VCS_PROJECT_KEY>"
+export VCS_REPO_SLUG="<VCS_REPO_SLUG>"
+export VCS_TOKEN="<VCS_TOKEN>"
 
-# PR event pipeline step
-./scripts/build-pipeline/review-step.sh 123
+# Auth: choose one mode
+export LLM_API_KEY="<LLM_API_KEY>"
+# OR
+# export OAUTH2_TOKEN_URL="<OAUTH2_TOKEN_URL>"
+# export OAUTH2_USER_ID="<OAUTH2_USER_ID>"
+# export OAUTH2_USER_SECRET="<OAUTH2_USER_SECRET>"
 
-# Post-merge pipeline step
-DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/distill-step.sh 123
+# PR create/update deployment step -> review
+export PR_ID="123"
+RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py
 
-# Monthly/on-demand refine pipeline step
-DPO_TRAINING_DATA_DIR=data ./scripts/build-pipeline/refine-step.sh
+# Post-merge deployment step -> distill
+export DPO_TRAINING_DATA_DIR="data"
+RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py
 
-# Clone-mode step examples
-RR_PIPELINE_INSTALL_MODE=clone RR_REPOSITORY_DIR="<PREPARED_REPO_DIR>" ./scripts/build-pipeline/review-step.sh 123
+# Monthly/on-demand deployment step -> refine
+RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py
 ```
 
-### Best-practice Build Pipeline step architecture
-
-To preserve Reflex Reviewer’s intended learning loop (`review -> distill -> refine`), wire pipeline steps in this order:
-
-| Bitbucket trigger timing | Script | Why this is the intended architecture |
-| --- | --- | --- |
-| PR created / PR updated | `review-step.sh` | Review comments are most useful during active PR discussion. |
-| PR merged / target branch updated post-merge | `distill-step.sh` | Distill should run after reviewer replies exist, so preference extraction has signal. |
-| Monthly admin schedule or on-demand execution | `refine-step.sh` | Refinement should be decoupled from PR latency and run on accumulated datasets. |
-
-Recommended operational setup:
-
-1. Run `setup-pipeline-runtime.sh` first to prepare runtime (package mode by default; clone mode when explicitly enabled).
-2. Keep runtime credentials in secure environment variables, not inline in pipeline config.
-3. Ensure PR events pass a PR id explicitly if your pipeline trigger context does not export one of the recognized PR id variables.
-4. Keep `refine-step.sh` asynchronous (monthly/on-demand) rather than tied to synchronous PR pipeline latency.
-5. Keep all model/VCS endpoint values centralized through environment + `reflex_reviewer.toml`.
+All deployment examples above are launcher-only and env-only. No module command invocation is required in pipeline jobs.
 
 ---
 
@@ -519,6 +463,7 @@ Run unit tests:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
+.venv/bin/python -m unittest discover -s standalone_launcher/tests
 ```
 
 Optional local env bootstrap:
@@ -556,6 +501,14 @@ python3 -m reflex_reviewer.refine \
   --dpo-training-data-dir "<TRAINING_DATA_DIR>"
 ```
 
+Run standalone launcher (copy `standalone_launcher/reflex_reviewer_launcher.py` and `standalone_launcher/reflex_reviewer_bootstrap.py`):
+
+```bash
+RR_LAUNCHER_COMMAND=review RR_LAUNCHER_ARGS='<PR_ID>' python3 reflex_reviewer_launcher.py
+RR_LAUNCHER_COMMAND=distill RR_LAUNCHER_ARGS='<PR_ID>' python3 reflex_reviewer_launcher.py
+RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py
+```
+
 Show CLI help:
 
 ```bash
@@ -589,7 +542,8 @@ cp reflex-reviewer/.env.example .env
 
 Then update `.env` with your runtime values:
 
-- VCS context: `VCS_TYPE`, `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN` (and optionally `VCS_PR_ID` if you are not passing `--pr-id` via CLI).
+- VCS context: `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN`.
+- PR id context for review/distill: `PR_ID` (or one of `VCS_PR_ID`, `BITBUCKET_PR_ID`, `BITBUCKET_PULL_REQUEST_ID`, `PULL_REQUEST_ID`).
 - LLM API endpoint/model: `LLM_API_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
 - Optional LLM API networking: `LLM_API_PROXY_URL`.
 - Optional LLM API read timeout override: `LLM_API_READ_TIMEOUT_SECONDS`.
@@ -607,11 +561,11 @@ set -a; source .env; set +a
 
 Run review:
 
-- `python3 -m reflex_reviewer.review --vcs-type bitbucket --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --judge-model "<JUDGE_MODEL>"`
+- `PR_ID='<PR_ID>' RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py`
 
 Post-merge and monthly/on-demand jobs:
-- `python3 -m reflex_reviewer.distill --vcs-type bitbucket --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
-- `python3 -m reflex_reviewer.refine --team-name "<TEAM_NAME>" --draft-model "<DRAFT_MODEL>" --dpo-training-data-dir "<TRAINING_DATA_DIR>"`
+- `PR_ID='<PR_ID>' DPO_TRAINING_DATA_DIR='<TRAINING_DATA_DIR>' RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py`
+- `RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py`
 
 ---
 
