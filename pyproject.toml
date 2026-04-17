@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reflex-reviewer"
-version = "0.1.7"
+version = "0.1.8"
 description = "Automated AI code review loop for VCS pull requests"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,7 +38,7 @@ reflex-refine = "reflex_reviewer.refine:run"
 
 [tool.hatch.build]
 include = [
-  "reflex_reviewer/prompts/*.md",
+  "**/*",
 ]
 
 [tool.hatch.build.targets.wheel]
