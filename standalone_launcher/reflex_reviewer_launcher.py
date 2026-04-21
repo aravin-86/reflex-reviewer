@@ -17,6 +17,7 @@ try:
         launcher_error,
         launcher_log,
         require_launcher_env,
+        require_refine_env,
         require_training_data_dir,
         resolve_pr_id,
         run_command,
@@ -36,6 +37,7 @@ except ImportError:  # pragma: no cover - direct script execution fallback
         launcher_error,
         launcher_log,
         require_launcher_env,
+        require_refine_env,
         require_training_data_dir,
         resolve_pr_id,
         run_command,
@@ -191,7 +193,7 @@ def refine_entrypoint(argv=None, environ=None):
 
 
 def _run_refine(raw_args, environ):
-    require_launcher_env(environ)
+    require_refine_env(environ)
     training_data_dir = require_training_data_dir(environ)
     ensure_directory(training_data_dir)
 

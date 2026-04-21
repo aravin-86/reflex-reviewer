@@ -38,6 +38,28 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Relaxed standalone launcher refine preflight to require only runtime-needed env vars:
+  - updated `standalone_launcher/reflex_reviewer_bootstrap.py`:
+    - split validation into composable helpers:
+      - `require_llm_runtime_env(...)`
+      - `require_vcs_runtime_env(...)`
+      - `require_refine_env(...)`
+    - kept `require_launcher_env(...)` for review/distill (LLM + VCS checks).
+    - `require_refine_env(...)` now validates LLM/runtime/auth only (no VCS env checks).
+  - updated `standalone_launcher/reflex_reviewer_launcher.py`:
+    - `_run_refine(...)` now uses `require_refine_env(...)`.
+  - updated launcher tests:
+    - `standalone_launcher/tests/test_reflex_reviewer_bootstrap.py`:
+      - added coverage that refine preflight does not require VCS env vars,
+      - added coverage that refine still requires LLM auth.
+    - `standalone_launcher/tests/test_reflex_reviewer_launcher.py`:
+      - added entrypoint test verifying refine runs without VCS env vars.
+  - updated `README.md` standalone launcher required-env docs:
+    - VCS env vars are now documented as required by `review`/`distill` only.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s standalone_launcher/tests`
+    - Result: `Ran 28 tests ... OK`.
+
 - Updated standalone launcher bootstrap to reuse virtualenv by default with explicit hard-refresh support:
   - updated `standalone_launcher/reflex_reviewer_bootstrap.py`:
     - added bootstrap-state fingerprint persistence via `.bootstrap-state.json` inside runner venv,

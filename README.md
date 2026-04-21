@@ -301,6 +301,7 @@ Required environment variables:
   - `TEAM_NAME`
   - `DRAFT_MODEL`
   - `LLM_API_BASE_URL`
+- Required by `review` and `distill`:
   - `VCS_BASE_URL`
   - `VCS_PROJECT_KEY`
   - `VCS_REPO_SLUG`
@@ -334,6 +335,8 @@ export TEAM_NAME="<TEAM_NAME>"
 export DRAFT_MODEL="<DRAFT_MODEL>"
 export JUDGE_MODEL="<JUDGE_MODEL>"             # required by review
 export LLM_API_BASE_URL="<LLM_API_BASE_URL>"
+
+# Required by review/distill only
 export VCS_BASE_URL="<VCS_BASE_URL>"
 export VCS_PROJECT_KEY="<VCS_PROJECT_KEY>"
 export VCS_REPO_SLUG="<VCS_REPO_SLUG>"

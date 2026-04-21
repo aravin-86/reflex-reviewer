@@ -19,6 +19,7 @@ from standalone_launcher.reflex_reviewer_bootstrap import (
     build_refine_command,
     build_review_command,
     require_launcher_env,
+    require_refine_env,
     resolve_runner_venv_dir,
     resolve_venv_python,
     resolve_pr_id,
@@ -68,6 +69,29 @@ class LauncherRuntimeTests(unittest.TestCase):
             "Required environment variable is missing: OAUTH2_TOKEN_URL",
         ):
             require_launcher_env(env)
+
+    def test_require_refine_env_does_not_require_vcs_env(self):
+        env = {
+            "TEAM_NAME": "team",
+            "DRAFT_MODEL": "model-a",
+            "LLM_API_BASE_URL": "https://llm.example.com",
+            "LLM_API_KEY": "token",
+        }
+
+        require_refine_env(env)
+
+    def test_require_refine_env_still_requires_llm_auth(self):
+        env = {
+            "TEAM_NAME": "team",
+            "DRAFT_MODEL": "model-a",
+            "LLM_API_BASE_URL": "https://llm.example.com",
+        }
+
+        with self.assertRaisesRegex(
+            LauncherExecutionError,
+            "Required environment variable is missing: OAUTH2_TOKEN_URL",
+        ):
+            require_refine_env(env)
 
     def test_build_review_command(self):
         env = {

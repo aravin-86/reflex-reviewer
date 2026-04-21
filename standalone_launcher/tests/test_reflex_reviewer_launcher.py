@@ -139,6 +139,31 @@ class LauncherEntrypointExecutionTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(mocked_run_command.called)
 
+    def test_refine_entrypoint_does_not_require_vcs_env(self):
+        with TemporaryDirectory() as temp_dir:
+            env = {
+                "TEAM_NAME": "team",
+                "DRAFT_MODEL": "draft-model",
+                "LLM_API_BASE_URL": "https://llm.example.com",
+                "LLM_API_KEY": "token",
+                "DPO_TRAINING_DATA_DIR": temp_dir,
+            }
+
+            with patch(
+                "standalone_launcher.reflex_reviewer_launcher.run_command"
+            ) as mocked_run_command, patch.object(
+                reflex_reviewer_launcher,
+                "_resolve_runtime_python",
+                return_value=sys.executable,
+            ):
+                exit_code = reflex_reviewer_launcher.refine_entrypoint(
+                    [],
+                    environ=env,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(mocked_run_command.called)
+
 
 class LauncherBootstrapTests(unittest.TestCase):
     def test_resolve_runtime_python_uses_env_python_bin(self):

@@ -134,6 +134,22 @@
   - `standalone_launcher/tests/test_reflex_reviewer_bootstrap.py`
 - Standalone launcher unit tests are now colocated with launcher modules under `standalone_launcher/tests/`.
 - Local verification now runs launcher tests via `python -m unittest discover -s standalone_launcher/tests`.
+- Standalone launcher env preflight is now step-specific for correctness:
+  - `review` requires LLM + VCS envs and `JUDGE_MODEL`,
+  - `distill` requires LLM + VCS envs and `DPO_TRAINING_DATA_DIR`,
+  - `refine` requires LLM envs/auth + `DPO_TRAINING_DATA_DIR` only (no VCS env requirement).
+- Standalone launcher bootstrap validation is now split into composable helpers:
+  - `require_llm_runtime_env(...)`
+  - `require_vcs_runtime_env(...)`
+  - `require_refine_env(...)`
+- README standalone launcher required-env section now documents that VCS envs are required only for `review` and `distill`.
+- Added launcher unit coverage for refine env relaxation:
+  - `test_require_refine_env_does_not_require_vcs_env`
+  - `test_require_refine_env_still_requires_llm_auth`
+  - `test_refine_entrypoint_does_not_require_vcs_env`
+- Verified launcher test suite in venv:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s standalone_launcher/tests`
+  - Result: `Ran 28 tests ... OK`.
 - Pipeline helper module naming updated for clarity:
   - renamed `reflex_reviewer/pipeline_execution.py` -> `reflex_reviewer/pipeline_runtime.py`,
   - updated `pipeline_entrypoint.py` import to `pipeline_runtime`,

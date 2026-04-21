@@ -111,18 +111,31 @@ def require_llm_api_auth(environ):
     require_env(environ, "OAUTH2_USER_SECRET")
 
 
-def require_launcher_env(environ, require_judge_model=False):
+def require_llm_runtime_env(environ, require_judge_model=False):
     env = environ or os.environ
     require_env(env, "TEAM_NAME")
     require_env(env, "DRAFT_MODEL")
     if require_judge_model:
         require_env(env, "JUDGE_MODEL")
     require_env(env, "LLM_API_BASE_URL")
+    require_llm_api_auth(env)
+
+
+def require_vcs_runtime_env(environ):
+    env = environ or os.environ
     require_env(env, "VCS_BASE_URL")
     require_env(env, "VCS_PROJECT_KEY")
     require_env(env, "VCS_REPO_SLUG")
     require_env(env, "VCS_TOKEN")
-    require_llm_api_auth(env)
+
+
+def require_launcher_env(environ, require_judge_model=False):
+    require_llm_runtime_env(environ, require_judge_model=require_judge_model)
+    require_vcs_runtime_env(environ)
+
+
+def require_refine_env(environ):
+    require_llm_runtime_env(environ, require_judge_model=False)
 
 
 def require_training_data_dir(environ):
