@@ -38,6 +38,16 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Increased LLM API retry wait/backoff to reduce rapid retry pressure on draft-review throttling:
+  - updated `reflex_reviewer/llm_api_client.py`:
+    - `_post_with_retry(...)` and `_get_with_retry(...)` now use `wait_exponential(multiplier=2, min=10, max=120)`.
+    - retained `stop_after_attempt(3)` and retry predicate behavior.
+  - updated `README.md` reliability section:
+    - documented split retry policy where VCS remains `min=2,max=20` and LLM API is now `min=10,max=120`.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_llm_api_client`
+    - Result: `Ran 18 tests ... OK`.
+
 - Relaxed standalone launcher refine preflight to require only runtime-needed env vars:
   - updated `standalone_launcher/reflex_reviewer_bootstrap.py`:
     - split validation into composable helpers:

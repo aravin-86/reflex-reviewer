@@ -177,6 +177,10 @@
   - request logs now include applied `request_timeout` for safe observability,
   - docs/examples updated in `README.md` and `.env.example`,
   - unit coverage added in `tests/test_config_runtime_overrides.py` for default/env/override timeout behavior.
+- LLM API retry backoff is now intentionally slower to reduce rapid retry pressure after 429 throttling in large review requests:
+  - updated `reflex_reviewer/llm_api_client.py` retry decorators for `_post_with_retry(...)` and `_get_with_retry(...)` from `wait_exponential(multiplier=1, min=2, max=20)` to `wait_exponential(multiplier=2, min=10, max=120)`,
+  - retained `stop_after_attempt(3)` and existing retryable-exception behavior,
+  - updated `README.md` reliability section to document that VCS and LLM retry wait windows now differ.
 
 ## Next likely updates
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).

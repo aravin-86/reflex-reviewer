@@ -146,7 +146,7 @@ def _estimate_context_window_tokens(payload_items):
 
 
 @retry(
-    wait=wait_exponential(multiplier=1, min=2, max=20),
+    wait=wait_exponential(multiplier=2, min=10, max=120),
     stop=stop_after_attempt(3),
     retry=retry_if_exception(_is_retryable_request_exception),
     reraise=True,
@@ -173,7 +173,7 @@ def _post_with_retry(url, **kwargs):
 
 
 @retry(
-    wait=wait_exponential(multiplier=1, min=2, max=20),
+    wait=wait_exponential(multiplier=2, min=10, max=120),
     stop=stop_after_attempt(3),
     retry=retry_if_exception(_is_retryable_request_exception),
     reraise=True,

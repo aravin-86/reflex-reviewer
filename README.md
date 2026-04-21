@@ -162,12 +162,18 @@ For refine/fine-tuning workflows, ensure your selected model/backend supports bo
 
 ## 2) Reliability and retry strategy
 
-Both VCS and LLM API HTTP paths use `tenacity` with the same retry policy:
+VCS and LLM API HTTP paths both use `tenacity`, but with different wait windows:
 
-- `wait=wait_exponential(multiplier=1, min=2, max=20)`
-- `stop=stop_after_attempt(3)`
-- `retry=retry_if_exception_type(requests.exceptions.RequestException)`
-- `reraise=True`
+- **VCS HTTP retry policy** (`reflex_reviewer/vcs/bitbucket_data_center.py`)
+  - `wait=wait_exponential(multiplier=1, min=2, max=20)`
+  - `stop=stop_after_attempt(3)`
+  - `retry=retry_if_exception_type(requests.exceptions.RequestException)`
+  - `reraise=True`
+- **LLM API HTTP retry policy** (`reflex_reviewer/llm_api_client.py`)
+  - `wait=wait_exponential(multiplier=2, min=10, max=120)`
+  - `stop=stop_after_attempt(3)`
+  - `retry=retry_if_exception(_is_retryable_request_exception)`
+  - `reraise=True`
 
 ### `reflex_reviewer/vcs/bitbucket_data_center.py`
 
