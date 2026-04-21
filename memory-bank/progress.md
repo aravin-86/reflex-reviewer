@@ -38,6 +38,42 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated LLM API HTTP logging to be header-only and added explicit success status logs:
+  - updated `reflex_reviewer/llm_api_client.py`:
+    - `_post_with_retry(...)` and `_get_with_retry(...)` now log only `response_headers` on HTTP failures (no response body preview).
+    - added `_safe_response_headers(...)` with sensitive header redaction for:
+      - `authorization`
+      - `proxy-authorization`
+      - `cookie`
+      - `set-cookie`
+      - `x-api-key`
+    - added minimal success logs in both helper methods with HTTP method and status code.
+    - removed response body preview logging usage from this module (`body_preview` path removed).
+  - updated `tests/test_llm_api_client.py`:
+    - added success-log coverage for `_post_with_retry(...)` and `_get_with_retry(...)` status-code logging.
+    - added failure-log coverage verifying header-only logging and absence of response body content.
+    - added header redaction assertions for `Set-Cookie` in failure logs.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_llm_api_client`
+    - Result: `Ran 26 tests ... OK`.
+
+- Extended LLM API retry strategy to reduce repeat rate-limit hits with two-phase behavior:
+  - updated `reflex_reviewer/llm_api_client.py`:
+    - added shared retry wait selector `_retry_wait_seconds_with_retry_after(...)` for both `_post_with_retry(...)` and `_get_with_retry(...)`.
+    - fallback wait now uses `wait_exponential(multiplier=2, min=65, max=180)` (first retry exceeds one minute).
+    - HTTP `429` now honors `Retry-After` header when valid (supports both numeric seconds and HTTP-date values).
+    - malformed/missing `Retry-After` now safely falls back to the long exponential wait.
+  - updated `tests/test_llm_api_client.py`:
+    - added coverage for fallback wait threshold (>=65s),
+    - added coverage for 429 `Retry-After` numeric-seconds handling,
+    - added coverage for 429 `Retry-After` HTTP-date handling,
+    - added coverage for invalid `Retry-After` fallback behavior.
+  - updated `README.md` reliability section:
+    - documented 429-aware `Retry-After` handling and new fallback backoff window.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_llm_api_client`
+    - Result: `Ran 22 tests ... OK`.
+
 - Increased LLM API retry wait/backoff to reduce rapid retry pressure on draft-review throttling:
   - updated `reflex_reviewer/llm_api_client.py`:
     - `_post_with_retry(...)` and `_get_with_retry(...)` now use `wait_exponential(multiplier=2, min=10, max=120)`.

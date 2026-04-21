@@ -170,7 +170,9 @@ VCS and LLM API HTTP paths both use `tenacity`, but with different wait windows:
   - `retry=retry_if_exception_type(requests.exceptions.RequestException)`
   - `reraise=True`
 - **LLM API HTTP retry policy** (`reflex_reviewer/llm_api_client.py`)
-  - `wait=wait_exponential(multiplier=2, min=10, max=120)`
+  - `wait=_retry_wait_seconds_with_retry_after` where:
+    - HTTP `429` honors `Retry-After` header when present/valid (supports both seconds and HTTP-date forms)
+    - fallback wait uses `wait_exponential(multiplier=2, min=65, max=180)`
   - `stop=stop_after_attempt(3)`
   - `retry=retry_if_exception(_is_retryable_request_exception)`
   - `reraise=True`

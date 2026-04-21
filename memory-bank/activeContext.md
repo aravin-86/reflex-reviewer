@@ -181,6 +181,18 @@
   - updated `reflex_reviewer/llm_api_client.py` retry decorators for `_post_with_retry(...)` and `_get_with_retry(...)` from `wait_exponential(multiplier=1, min=2, max=20)` to `wait_exponential(multiplier=2, min=10, max=120)`,
   - retained `stop_after_attempt(3)` and existing retryable-exception behavior,
   - updated `README.md` reliability section to document that VCS and LLM retry wait windows now differ.
+- LLM API retry wait strategy is now both longer and 429-aware to better avoid repeat throttling:
+  - `reflex_reviewer/llm_api_client.py` now uses a shared custom wait function for both `_post_with_retry(...)` and `_get_with_retry(...)`,
+  - fallback backoff now waits longer than one minute before first retry: `wait_exponential(multiplier=2, min=65, max=180)`,
+  - for HTTP `429`, retry delay now honors `Retry-After` when present/valid (supports delta-seconds and HTTP-date formats),
+  - invalid/missing `Retry-After` safely falls back to the longer exponential wait,
+  - `tests/test_llm_api_client.py` includes targeted coverage for fallback wait and `Retry-After` parsing/selection behavior.
+- LLM API response logging is now header-only for HTTP outcomes in the low-level request helpers:
+  - `_post_with_retry(...)` and `_get_with_retry(...)` now log `response_headers` instead of response-body previews on HTTP errors,
+  - added `_safe_response_headers(...)` with sensitive header redaction (`authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`),
+  - removed body-preview helper usage from `llm_api_client` logging paths,
+  - added minimal success logs in `_post_with_retry(...)` and `_get_with_retry(...)` with HTTP method and status code,
+  - updated `tests/test_llm_api_client.py` with explicit coverage for header-only failure logs and success status-code logs.
 
 ## Next likely updates
 - Add CI-friendly command wrappers for local/PR test execution (optional quality-of-life improvement).

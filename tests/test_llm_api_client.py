@@ -1,6 +1,7 @@
 import unittest
 import json
 import tempfile
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import requests
@@ -60,6 +61,187 @@ class LLMAPIClientTests(unittest.TestCase):
                 continue
             retrying.wait = wait_none()
             retrying.sleep = lambda _: None
+
+    def _build_retry_state(self, exc=None, attempt_number=1):
+        retry_state = Mock()
+        retry_state.attempt_number = attempt_number
+
+        if exc is None:
+            retry_state.outcome = None
+            return retry_state
+
+        outcome = Mock()
+        outcome.failed = True
+        outcome.exception.return_value = exc
+        retry_state.outcome = outcome
+        return retry_state
+
+    def test_retry_wait_fallback_first_retry_exceeds_one_minute(self):
+        retry_state = self._build_retry_state(attempt_number=1)
+
+        wait_seconds = llm_api_client_module._retry_wait_seconds_with_retry_after(
+            retry_state
+        )
+
+        self.assertGreaterEqual(wait_seconds, 65)
+
+    def test_retry_wait_honors_retry_after_seconds_for_http_429(self):
+        too_many_requests_response = _mock_response(
+            status_code=429,
+            content_type="application/json",
+            text='{"error":"rate_limit"}',
+        )
+        too_many_requests_response.headers["Retry-After"] = "75"
+        too_many_requests_error = requests.exceptions.HTTPError(
+            "429 Too Many Requests",
+            response=too_many_requests_response,
+        )
+        retry_state = self._build_retry_state(exc=too_many_requests_error)
+
+        with patch.object(
+            llm_api_client_module,
+            "LLM_API_RETRY_FALLBACK_WAIT",
+            return_value=65.0,
+        ):
+            wait_seconds = llm_api_client_module._retry_wait_seconds_with_retry_after(
+                retry_state
+            )
+
+        self.assertEqual(wait_seconds, 75.0)
+
+    def test_retry_wait_honors_retry_after_http_date_for_http_429(self):
+        too_many_requests_response = _mock_response(
+            status_code=429,
+            content_type="application/json",
+            text='{"error":"rate_limit"}',
+        )
+        retry_after_http_date = (
+            datetime.now(timezone.utc) + timedelta(seconds=120)
+        ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        too_many_requests_response.headers["Retry-After"] = retry_after_http_date
+        too_many_requests_error = requests.exceptions.HTTPError(
+            "429 Too Many Requests",
+            response=too_many_requests_response,
+        )
+        retry_state = self._build_retry_state(exc=too_many_requests_error)
+
+        with patch.object(
+            llm_api_client_module,
+            "LLM_API_RETRY_FALLBACK_WAIT",
+            return_value=65.0,
+        ):
+            wait_seconds = llm_api_client_module._retry_wait_seconds_with_retry_after(
+                retry_state
+            )
+
+        self.assertGreater(wait_seconds, 100)
+        self.assertLessEqual(wait_seconds, 120)
+
+    def test_retry_wait_falls_back_when_retry_after_header_is_invalid(self):
+        too_many_requests_response = _mock_response(
+            status_code=429,
+            content_type="application/json",
+            text='{"error":"rate_limit"}',
+        )
+        too_many_requests_response.headers["Retry-After"] = "not-a-number"
+        too_many_requests_error = requests.exceptions.HTTPError(
+            "429 Too Many Requests",
+            response=too_many_requests_response,
+        )
+        retry_state = self._build_retry_state(exc=too_many_requests_error)
+
+        with patch.object(
+            llm_api_client_module,
+            "LLM_API_RETRY_FALLBACK_WAIT",
+            return_value=65.0,
+        ):
+            wait_seconds = llm_api_client_module._retry_wait_seconds_with_retry_after(
+                retry_state
+            )
+
+        self.assertEqual(wait_seconds, 65.0)
+
+    @patch("reflex_reviewer.llm_api_client.requests.post")
+    def test_post_with_retry_logs_success_with_status_code(self, mock_post):
+        mock_post.return_value = _mock_response(status_code=201)
+
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="INFO") as logs:
+            response = llm_api_client_module._post_with_retry(
+                "https://llm-api.example.test/chat/completions"
+            )
+
+        self.assertEqual(response.status_code, 201)
+        logs_text = "\n".join(logs.output)
+        self.assertIn("HTTP request succeeded. method=POST status_code=201", logs_text)
+
+    @patch("reflex_reviewer.llm_api_client.requests.get")
+    def test_get_with_retry_logs_success_with_status_code(self, mock_get):
+        mock_get.return_value = _mock_response(status_code=204)
+
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="INFO") as logs:
+            response = llm_api_client_module._get_with_retry(
+                "https://llm-api.example.test/fine_tuning/jobs/job_1"
+            )
+
+        self.assertEqual(response.status_code, 204)
+        logs_text = "\n".join(logs.output)
+        self.assertIn("HTTP request succeeded. method=GET status_code=204", logs_text)
+
+    @patch("reflex_reviewer.llm_api_client.requests.post")
+    def test_post_with_retry_failure_logs_headers_without_body(self, mock_post):
+        failed_response = _mock_response(
+            status_code=400,
+            content_type="application/json",
+            text='{"error":"secret-body-value"}',
+        )
+        failed_response.headers["Set-Cookie"] = "session=super-secret"
+        failed_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "400 Client Error",
+            response=failed_response,
+        )
+        mock_post.return_value = failed_response
+
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="WARNING") as logs:
+            with self.assertRaises(requests.exceptions.HTTPError):
+                llm_api_client_module._post_with_retry(
+                    "https://llm-api.example.test/chat/completions"
+                )
+
+        logs_text = "\n".join(logs.output)
+        self.assertIn(
+            "HTTP request failed. method=POST status_code=400 response_headers=",
+            logs_text,
+        )
+        self.assertIn("'Set-Cookie': '[REDACTED]'", logs_text)
+        self.assertNotIn("secret-body-value", logs_text)
+
+    @patch("reflex_reviewer.llm_api_client.requests.get")
+    def test_get_with_retry_failure_logs_headers_without_body(self, mock_get):
+        failed_response = _mock_response(
+            status_code=404,
+            content_type="application/json",
+            text='{"error":"secret-get-body"}',
+        )
+        failed_response.headers["Set-Cookie"] = "session=get-secret"
+        failed_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "404 Client Error",
+            response=failed_response,
+        )
+        mock_get.return_value = failed_response
+
+        with self.assertLogs("reflex_reviewer.llm_api_client", level="WARNING") as logs:
+            with self.assertRaises(requests.exceptions.HTTPError):
+                llm_api_client_module._get_with_retry(
+                    "https://llm-api.example.test/fine_tuning/jobs/job_1"
+                )
+
+        logs_text = "\n".join(logs.output)
+        self.assertIn(
+            "HTTP request failed. method=GET status_code=404 response_headers=",
+            logs_text,
+        )
+        self.assertIn("'Set-Cookie': '[REDACTED]'", logs_text)
+        self.assertNotIn("secret-get-body", logs_text)
 
     @patch("reflex_reviewer.llm_api_client.get_oauth2_token", return_value="token")
     @patch("reflex_reviewer.llm_api_client.requests.post")

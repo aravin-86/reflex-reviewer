@@ -1,7 +1,8 @@
 import logging
 import os
-import re
 import json
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import requests  # pyright: ignore[reportMissingModuleSource]
 from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleSource]
@@ -17,6 +18,14 @@ from .oauth2 import get_oauth2_token
 logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {408, 409, 425, 429}
 DEFAULT_REQUEST_TIMEOUT = (10, 30)
+LLM_API_RETRY_FALLBACK_WAIT = wait_exponential(multiplier=2, min=65, max=180)
+SENSITIVE_RESPONSE_HEADER_NAMES = {
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+}
 
 
 def _normalize_api_path(path_value, default_path):
@@ -108,6 +117,71 @@ def _is_retryable_request_exception(exc):
     )
 
 
+def _parse_retry_after_seconds(retry_after_header_value):
+    retry_after_header = str(retry_after_header_value or "").strip()
+    if not retry_after_header:
+        return None
+
+    try:
+        retry_after_seconds = float(retry_after_header)
+    except ValueError:
+        retry_after_seconds = None
+
+    if retry_after_seconds is not None:
+        return max(0.0, retry_after_seconds)
+
+    try:
+        retry_after_datetime = parsedate_to_datetime(retry_after_header)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    if retry_after_datetime is None:
+        return None
+
+    if retry_after_datetime.tzinfo is None:
+        retry_after_datetime = retry_after_datetime.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    return max(0.0, (retry_after_datetime - now).total_seconds())
+
+
+def _retry_wait_seconds_with_retry_after(retry_state):
+    fallback_wait_seconds = LLM_API_RETRY_FALLBACK_WAIT(retry_state)
+
+    outcome = getattr(retry_state, "outcome", None)
+    if outcome is None or not outcome.failed:
+        return fallback_wait_seconds
+
+    exc = outcome.exception()
+    if not isinstance(exc, requests.exceptions.HTTPError):
+        return fallback_wait_seconds
+
+    response = exc.response
+    if response is None:
+        return fallback_wait_seconds
+
+    try:
+        status_code = int(response.status_code)
+    except (TypeError, ValueError):
+        return fallback_wait_seconds
+
+    if status_code != 429:
+        return fallback_wait_seconds
+
+    response_headers = response.headers or {}
+    retry_after_seconds = _parse_retry_after_seconds(
+        response_headers.get("Retry-After")
+    )
+    if retry_after_seconds is None:
+        return fallback_wait_seconds
+
+    logger.info(
+        "Honoring Retry-After header for HTTP 429 retry. retry_after_seconds=%s",
+        round(retry_after_seconds, 2),
+    )
+    return retry_after_seconds
+
+
 def _supports_reasoning_effort(model):
     normalized_model = str(model or "").strip().lower()
     if not normalized_model:
@@ -146,7 +220,7 @@ def _estimate_context_window_tokens(payload_items):
 
 
 @retry(
-    wait=wait_exponential(multiplier=2, min=10, max=120),
+    wait=_retry_wait_seconds_with_retry_after,
     stop=stop_after_attempt(3),
     retry=retry_if_exception(_is_retryable_request_exception),
     reraise=True,
@@ -162,18 +236,22 @@ def _post_with_retry(url, **kwargs):
         response.raise_for_status()
     except requests.exceptions.HTTPError:
         logger.warning(
-            "HTTP request failed. status_code=%s content_type=%s body_preview=%s",
+            "HTTP request failed. method=POST status_code=%s response_headers=%s",
             response.status_code,
-            response.headers.get("Content-Type", "unknown"),
-            _safe_response_preview(response.text),
+            _safe_response_headers(response.headers),
         )
         raise
+
+    logger.info(
+        "HTTP request succeeded. method=POST status_code=%s",
+        response.status_code,
+    )
 
     return response
 
 
 @retry(
-    wait=wait_exponential(multiplier=2, min=10, max=120),
+    wait=_retry_wait_seconds_with_retry_after,
     stop=stop_after_attempt(3),
     retry=retry_if_exception(_is_retryable_request_exception),
     reraise=True,
@@ -189,25 +267,34 @@ def _get_with_retry(url, **kwargs):
         response.raise_for_status()
     except requests.exceptions.HTTPError:
         logger.warning(
-            "HTTP request failed. status_code=%s content_type=%s body_preview=%s",
+            "HTTP request failed. method=GET status_code=%s response_headers=%s",
             response.status_code,
-            response.headers.get("Content-Type", "unknown"),
-            _safe_response_preview(response.text),
+            _safe_response_headers(response.headers),
         )
         raise
+
+    logger.info(
+        "HTTP request succeeded. method=GET status_code=%s",
+        response.status_code,
+    )
 
     return response
 
 
-def _safe_response_preview(response_text, max_chars=160):
-    if not response_text:
-        return ""
+def _safe_response_headers(response_headers):
+    if not response_headers:
+        return {}
 
-    normalized_text = re.sub(r"\s+", " ", str(response_text)).strip()
-    if len(normalized_text) <= max_chars:
-        return normalized_text
+    normalized_headers = {}
+    for header_name, header_value in dict(response_headers).items():
+        normalized_name = str(header_name)
+        if normalized_name.strip().lower() in SENSITIVE_RESPONSE_HEADER_NAMES:
+            normalized_headers[normalized_name] = "[REDACTED]"
+            continue
 
-    return f"{normalized_text[:max_chars]}..."
+        normalized_headers[normalized_name] = str(header_value)
+
+    return normalized_headers
 
 
 def _extract_sse_data_payloads(response_text):
@@ -502,10 +589,9 @@ def chat_completions(model, messages, stream=False, pr_id=None):
         return _parse_non_stream_chat_completion_response(response.text)
     except ValueError as exc:
         logger.warning(
-            "LLM API chat completion returned unparsable event-stream response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
+            "LLM API chat completion returned unparsable event-stream response. status_code=%s response_headers=%s parse_error=%s",
             response.status_code,
-            response.headers.get("Content-Type", "unknown"),
-            _safe_response_preview(response.text),
+            _safe_response_headers(response.headers),
             str(exc),
         )
         raise LLMAPIResponseParseError(
@@ -611,10 +697,9 @@ def responses(
         return parsed_response
     except ValueError as exc:
         logger.warning(
-            "LLM API responses API returned unparsable response. status_code=%s content_type=%s body_preview=%s parse_error=%s",
+            "LLM API responses API returned unparsable response. status_code=%s response_headers=%s parse_error=%s",
             response.status_code,
-            response.headers.get("Content-Type", "unknown"),
-            _safe_response_preview(response.text),
+            _safe_response_headers(response.headers),
             str(exc),
         )
         raise LLMAPIResponseParseError(
