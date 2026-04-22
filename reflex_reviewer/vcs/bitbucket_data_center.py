@@ -8,7 +8,7 @@ from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleS
     wait_exponential,
 )
 
-from reflex_reviewer.oauth2 import get_oauth2_token
+from ..auth.oauth2 import get_oauth2_token
 from .vcs_client import VCSClient
 
 

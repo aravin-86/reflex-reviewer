@@ -6,6 +6,7 @@ from unittest.mock import patch
 from reflex_reviewer.config import (
     clear_runtime_overrides,
     get_common_config,
+    get_review_config,
     get_oauth2_config,
     get_llm_api_config,
     get_model_config,
@@ -143,6 +144,47 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
 
             overridden = get_model_config({"model_endpoint": "RESPONSES"})
             self.assertEqual(overridden.get("model_endpoint"), "responses")
+
+    def test_review_repository_context_defaults(self):
+        with patch.dict("os.environ", {}, clear=True):
+            review_config = get_review_config()
+
+        self.assertIsNone(review_config.get("repository_path"))
+        self.assertEqual(review_config.get("max_changed_files"), 400)
+        self.assertEqual(review_config.get("max_repo_map_files"), 150)
+        self.assertEqual(review_config.get("max_repo_map_chars"), 100000)
+        self.assertEqual(review_config.get("max_related_files"), 80)
+        self.assertEqual(review_config.get("max_related_files_chars"), 150000)
+        self.assertEqual(review_config.get("max_code_search_results"), 500)
+        self.assertEqual(review_config.get("max_code_search_chars"), 150000)
+        self.assertEqual(review_config.get("max_code_search_query_terms"), 50)
+        self.assertEqual(
+            review_config.get("repository_ignore_directories"),
+            {"dev-tools"},
+        )
+
+    def test_review_repository_context_resolves_repository_path_from_env(self):
+        with patch.dict(
+            "os.environ",
+            {"REPOSITORY_PATH": "/tmp/sample-repo"},
+            clear=True,
+        ):
+            review_config = get_review_config()
+
+        self.assertEqual(review_config.get("repository_path"), "/tmp/sample-repo")
+
+    def test_review_repository_context_resolves_ignore_directories_from_env(self):
+        with patch.dict(
+            "os.environ",
+            {"REPOSITORY_IGNORE_DIRECTORIES": "dev-tools,.cache,tmp/nested"},
+            clear=True,
+        ):
+            review_config = get_review_config()
+
+        self.assertEqual(
+            review_config.get("repository_ignore_directories"),
+            {"dev-tools", ".cache", "nested"},
+        )
 
     def test_oauth2_config_uses_fallback_env_vars(self):
         with patch.dict(

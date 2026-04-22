@@ -10,17 +10,17 @@
 - `reflex_reviewer/config.py`
   - Central runtime configuration resolution.
   - Supports CLI/environment/TOML composition and normalization.
-- `reflex_reviewer/llm_api_client.py`
+- `reflex_reviewer/llm/api_client.py`
   - Handles API communication with retry support and response parsing.
-- `reflex_reviewer/oauth2.py`
+- `reflex_reviewer/auth/oauth2.py`
   - OAuth2 token retrieval/caching for auth fallback when API key is not provided.
 - `reflex_reviewer/vcs/vcs_client.py`
   - Protocol/interface definition for VCS clients used by runtime flows.
 - `reflex_reviewer/vcs/bitbucket_data_center.py`
   - Bitbucket operations for PR metadata, activities, and comment posting/updating.
-- `reflex_reviewer/response_handler.py`
+- `reflex_reviewer/llm/response_handler.py`
   - Parses model responses into typed/structured payloads used by runtime flows.
-- `reflex_reviewer/review_response_state.py`
+- `reflex_reviewer/review_runtime/response_state.py`
   - Stores/retrieves previous response IDs for responses API continuity.
 
 ## Design patterns in use

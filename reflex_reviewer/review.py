@@ -3,9 +3,7 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 
-import requests  # type: ignore[reportMissingImports,reportMissingModuleSource]
 from openai import (  # type: ignore[reportMissingImports]
     APIConnectionError,
     APITimeoutError,
@@ -26,9 +24,18 @@ from .config import (
     get_review_config,
     set_runtime_overrides,
 )
-from .llm_api_client import chat_completions, responses
-from .response_handler import parse_review_payload
-from .review_response_state import ReviewResponseStateStore
+from .llm.api_client import chat_completions, responses
+from .repository_context.service import (
+    build_repo_map_for_changed_files,
+    compose_repository_context_bundle,
+    extract_changed_file_paths_from_diff,
+    resolve_repository_path,
+    retrieve_bounded_code_search_context,
+    retrieve_related_files_context,
+)
+from .llm.response_handler import parse_review_payload
+from .review_graph_runtime.graph import execute_review_graph
+from .review_runtime.response_state import ReviewResponseStateStore
 from .vcs import get_vcs_client
 
 logger = logging.getLogger(__name__)
@@ -39,6 +46,16 @@ MAX_DIFF_CHARS = review_config["max_diff_chars"]
 MAX_EXISTING_FEEDBACK_COMMENTS = review_config["max_existing_feedback_comments"]
 ACTIVITIES_FETCH_LIMIT = review_config["activities_fetch_limit"]
 SANITIZED_COMMENT_MAX_CHARS = review_config["sanitized_comment_max_chars"]
+REPOSITORY_PATH = review_config["repository_path"]
+MAX_CHANGED_FILES = review_config["max_changed_files"]
+MAX_REPO_MAP_FILES = review_config["max_repo_map_files"]
+MAX_REPO_MAP_CHARS = review_config["max_repo_map_chars"]
+MAX_RELATED_FILES = review_config["max_related_files"]
+MAX_RELATED_FILES_CHARS = review_config["max_related_files_chars"]
+MAX_CODE_SEARCH_RESULTS = review_config["max_code_search_results"]
+MAX_CODE_SEARCH_CHARS = review_config["max_code_search_chars"]
+MAX_CODE_SEARCH_QUERY_TERMS = review_config["max_code_search_query_terms"]
+REPOSITORY_IGNORE_DIRECTORIES = review_config["repository_ignore_directories"]
 SKIP_EXTENSIONS = review_config["skip_extensions"]
 SKIP_FILES = review_config["skip_files"]
 MODEL_ENDPOINT = str(model_config.get("model_endpoint") or "responses").strip().lower()
@@ -47,6 +64,16 @@ RESPONSE_STATE_TTL_DAYS = review_config["response_state_ttl_days"]
 ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
+SUMMARY_COMMENT_SECTIONS = (
+    ("**Verdict:**", "**Summary:**", "**Checklist**"),
+    ("**Outcome:**", "**Review Summary:**", "**Checklist**"),
+)
+VERDICT_TO_OUTCOME = {
+    "APPROVED": "Looks Good",
+    "LOOKS GOOD": "Looks Good",
+    "CHANGES_SUGGESTED": "Changes Suggested",
+    "CHANGES SUGGESTED": "Changes Suggested",
+}
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
@@ -198,7 +225,12 @@ def _is_summary_comment_text(text, team_name):
 
     if not _is_bot_comment_text(text, team_name):
         return False
-    return "**Verdict:**" in text and "**Summary:**" in text and "**Checklist**" in text
+
+    normalized_text = str(text or "")
+    return any(
+        all(section in normalized_text for section in summary_section)
+        for summary_section in SUMMARY_COMMENT_SECTIONS
+    )
 
 
 def _parse_inline_comment_payload(text):
@@ -730,7 +762,8 @@ def _resolve_anchor_by_id(anchor_id, anchor_index):
 
 
 def _build_summary_comment_body(verdict, summary, checklist, team_name):
-    normalized_verdict = (verdict or "CHANGES_SUGGESTED").strip()
+    normalized_verdict = (verdict or "CHANGES_SUGGESTED").strip().upper()
+    outcome_label = VERDICT_TO_OUTCOME.get(normalized_verdict, "Changes Suggested")
     normalized_summary = (summary or "No issues identified.").strip()
     safe_checklist = checklist if isinstance(checklist, list) else []
     checklist_md = (
@@ -743,8 +776,8 @@ def _build_summary_comment_body(verdict, summary, checklist, team_name):
     body = (
         f"### #{hashtag_team_name}\n\n"
         f"{SUMMARY_COMMENT_MARKER}\n\n"
-        f"**Verdict:** `{normalized_verdict}`\n\n"
-        f"**Summary:** {normalized_summary}\n\n"
+        f"**Outcome:** `{outcome_label}`\n\n"
+        f"**Review Summary:** {normalized_summary}\n\n"
         f"**Checklist**\n"
         f"{checklist_md}"
     )
@@ -795,7 +828,18 @@ def _build_judge_prompt_user_content(
     safe_diff,
     existing_feedback,
     draft_review_data,
+    repository_context_bundle,
 ):
+    repository_context = repository_context_bundle or {}
+    repo_map = str(repository_context.get("repo_map") or "No repository map context available.")
+    related_files_context = str(
+        repository_context.get("related_files_context")
+        or "No related-file context available."
+    )
+    code_search_context = str(
+        repository_context.get("code_search_context")
+        or "No code-search context available."
+    )
     draft_review_json = json.dumps(draft_review_data, ensure_ascii=False)
     return (
         prompt_template.replace("{{DIFF_CONTENT}}", safe_diff)
@@ -803,6 +847,9 @@ def _build_judge_prompt_user_content(
         .replace("{{PR_DESCRIPTION}}", pr_description)
         .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
         .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
+        .replace("{{REPOSITORY_MAP}}", repo_map)
+        .replace("{{RELATED_FILES_CONTEXT}}", related_files_context)
+        .replace("{{CODE_SEARCH_CONTEXT}}", code_search_context)
         .replace("{{DRAFT_REVIEW_JSON}}", draft_review_json)
     )
 
@@ -841,239 +888,51 @@ def run(
     set_runtime_overrides(runtime_overrides)
 
     try:
-        runtime_settings = _resolve_runtime_settings(runtime_overrides)
-        run_team_name = runtime_settings["team_name"]
-        run_draft_model = runtime_settings["draft_model"]
-        run_judge_model = runtime_settings["judge_model"]
-        run_stream_response = runtime_settings["stream_response"]
-        logger.info("Review run started.")
-        vcs_client = get_vcs_client(
-            vcs_type=vcs_type,
-            config_overrides=runtime_overrides,
-        )
-        vcs_config = vcs_client.get_vcs_config()
-        pr_id = pr_id if pr_id is not None else vcs_config.get("pr_id")
-        if not pr_id:
-            raise ValueError("PR id is required. Set VCS_PR_ID.")
-
-        logger.info("Fetching PR diff for review. pr_id=%s", pr_id)
-
-        # 1. Convert JSON -> Unified Git Diff (with skipping) + anchor map.
-        raw_diff_data = vcs_client.fetch_pr_diff(pr_id)
-        raw_git_diff, anchor_index = convert_to_unified_diff_and_anchor_index(
-            raw_diff_data
-        )
-        # 2. Hard Truncate if still over limit
-        safe_diff = truncate_diff(raw_git_diff)
-
-        if not safe_diff.strip():
-            logger.warning(
-                "No reviewable code changes after filtering. pr_id=%s", pr_id
-            )
-            return
-
-        pr_title, pr_description = fetch_pr_metadata(vcs_client, pr_id)
-        activities = fetch_pr_activities(vcs_client, pr_id)
-        existing_feedback = build_existing_feedback_context(activities, run_team_name)
-        review_purpose = _build_review_purpose(pr_title, pr_description)
-
-        # 3. Request Review from GPT-5.4 mini
-        prompts_dir = Path(__file__).resolve().parent / "prompts"
-        with open(prompts_dir / "review_system_prompt.md", "r", encoding="utf-8") as f:
-            draft_sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
-        with open(prompts_dir / "review_user_prompt.md", "r", encoding="utf-8") as f:
-            draft_user_p = (
-                f.read()
-                .replace("{{DIFF_CONTENT}}", safe_diff)
-                .replace("{{PURPOSE}}", review_purpose)
-                .replace("{{PR_TITLE}}", pr_title)
-                .replace("{{PR_DESCRIPTION}}", pr_description)
-                .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
-                .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
-            )
-
-        logger.info(
-            "Requesting draft review model response. model=%s pr_id=%s",
-            run_draft_model,
-            pr_id,
-        )
-
-        state_key = _build_previous_response_id(vcs_config or {}, pr_id)
-        previous_response_id = None
-        store_response = False
-
-        if MODEL_ENDPOINT == "responses":
-            response_state_store = ReviewResponseStateStore(
-                RESPONSE_STATE_FILE,
-                ttl_days=RESPONSE_STATE_TTL_DAYS,
-            )
-            previous_response_id = response_state_store.get_previous_response_id(
-                state_key
-            )
-            store_response = previous_response_id is None
-
-        draft_response = get_review_model_completion(
-            run_draft_model,
-            draft_sys_p,
-            draft_user_p,
-            pr_id=pr_id,
-            vcs_config=vcs_config,
-            previous_response_id=previous_response_id,
-            store_response=store_response,
+        execute_review_graph(
+            initial_state={
+                "runtime_overrides": runtime_overrides,
+                "vcs_type": vcs_type,
+                "pr_id": pr_id,
+                "halt": False,
+            },
+            resolve_runtime_settings=_resolve_runtime_settings,
+            get_vcs_client=get_vcs_client,
+            resolve_repository_path=resolve_repository_path,
+            extract_changed_file_paths_from_diff=extract_changed_file_paths_from_diff,
+            build_repo_map_for_changed_files=build_repo_map_for_changed_files,
+            retrieve_related_files_context=retrieve_related_files_context,
+            retrieve_bounded_code_search_context=retrieve_bounded_code_search_context,
+            compose_repository_context_bundle=compose_repository_context_bundle,
+            repository_path=REPOSITORY_PATH,
+            max_changed_files=MAX_CHANGED_FILES,
+            max_repo_map_files=MAX_REPO_MAP_FILES,
+            max_repo_map_chars=MAX_REPO_MAP_CHARS,
+            max_related_files=MAX_RELATED_FILES,
+            max_related_files_chars=MAX_RELATED_FILES_CHARS,
+            max_code_search_results=MAX_CODE_SEARCH_RESULTS,
+            max_code_search_chars=MAX_CODE_SEARCH_CHARS,
+            max_code_search_query_terms=MAX_CODE_SEARCH_QUERY_TERMS,
+            repository_ignore_directories=REPOSITORY_IGNORE_DIRECTORIES,
+            convert_to_unified_diff_and_anchor_index=convert_to_unified_diff_and_anchor_index,
+            truncate_diff=truncate_diff,
+            fetch_pr_metadata=fetch_pr_metadata,
+            fetch_pr_activities=fetch_pr_activities,
+            build_existing_feedback_context=build_existing_feedback_context,
+            build_review_purpose=_build_review_purpose,
+            build_previous_response_id=_build_previous_response_id,
+            normalize_comment_severity=_normalize_comment_severity,
+            resolve_comment_severity=_resolve_comment_severity,
+            resolve_anchor_by_id=_resolve_anchor_by_id,
+            post_inline_comment=post_inline_comment,
+            upsert_summary_comment=upsert_summary_comment,
+            get_review_model_completion=get_review_model_completion,
+            parse_review_payload=parse_review_payload,
+            extract_previous_response_id=_extract_previous_response_id,
+            build_judge_prompt_user_content=_build_judge_prompt_user_content,
+            response_state_store_cls=ReviewResponseStateStore,
+            response_state_file=RESPONSE_STATE_FILE,
+            response_state_ttl_days=RESPONSE_STATE_TTL_DAYS,
             model_endpoint=MODEL_ENDPOINT,
-            stream_response=run_stream_response,
-        )
-
-        if MODEL_ENDPOINT == "responses":
-            latest_response_id = _extract_previous_response_id(draft_response)
-            if latest_response_id:
-                response_state_store.set_previous_response_id(
-                    state_key,
-                    latest_response_id,
-                )
-            elif run_stream_response and not isinstance(draft_response, dict):
-                logger.info(
-                    "Skipping response-id persistence for streamed responses API payload. state_key=%s",
-                    state_key,
-                )
-            else:
-                logger.warning(
-                    "Responses API payload did not include a response id. state_key=%s",
-                    state_key,
-                )
-
-        try:
-            draft_review_data = parse_review_payload(draft_response)
-        except ValueError:
-            logger.exception("Unable to parse draft review payload")
-            return
-
-        with open(
-            prompts_dir / "judge_review_system_prompt.md", "r", encoding="utf-8"
-        ) as f:
-            judge_sys_p = f.read().replace("{{TEAM_NAME}}", run_team_name)
-        with open(
-            prompts_dir / "judge_review_user_prompt.md", "r", encoding="utf-8"
-        ) as f:
-            judge_user_p = _build_judge_prompt_user_content(
-                prompt_template=f.read(),
-                pr_title=pr_title,
-                pr_description=pr_description,
-                safe_diff=safe_diff,
-                existing_feedback=existing_feedback,
-                draft_review_data=draft_review_data,
-            )
-
-        logger.info(
-            "Requesting judge review model response. model=%s pr_id=%s",
-            run_judge_model,
-            pr_id,
-        )
-        judge_response = get_review_model_completion(
-            run_judge_model,
-            judge_sys_p,
-            judge_user_p,
-            pr_id=pr_id,
-            vcs_config=vcs_config,
-            previous_response_id=None,
-            store_response=False,
-            model_endpoint=MODEL_ENDPOINT,
-            stream_response=run_stream_response,
-        )
-
-        try:
-            review_data = parse_review_payload(judge_response)
-        except ValueError:
-            logger.exception("Unable to parse judge review payload")
-            return
-
-        verdict = review_data.get("verdict", "CHANGES_SUGGESTED")
-        summary = review_data.get("summary", "No issues identified.")
-        checklist = review_data.get("checklist", [])
-        comments = review_data.get("comments", [])
-
-        if not isinstance(comments, list) or not comments:
-            try:
-                upsert_summary_comment(
-                    vcs_client,
-                    pr_id,
-                    verdict,
-                    summary,
-                    checklist,
-                    run_team_name,
-                )
-            except requests.exceptions.RequestException:
-                logger.exception("Failed to post summary comment")
-
-            logger.info(
-                "No inline comments to post. Review run completed with summary only."
-            )
-            return
-
-        posted_inline_count = 0
-        skipped_inline_count = 0
-
-        for comment in comments:
-            anchor_id = (comment.get("anchor_id") or "").strip()
-            severity = _normalize_comment_severity(comment.get("severity"))
-            text = (comment.get("text") or "").strip()
-
-            if not text or not anchor_id:
-                skipped_inline_count += 1
-                logger.warning(
-                    "Skipping inline comment missing required anchor_id/text",
-                )
-                continue
-
-            resolved_anchor = _resolve_anchor_by_id(anchor_id, anchor_index)
-
-            if not resolved_anchor.get("resolved"):
-                skipped_inline_count += 1
-                logger.warning(
-                    "Skipping inline comment: reason=%s anchor_id=%s resolved_path=%s",
-                    resolved_anchor.get("reason"),
-                    anchor_id,
-                    resolved_anchor.get("path"),
-                )
-                continue
-
-            severity = _resolve_comment_severity(severity, resolved_anchor["path"])
-
-            try:
-                post_inline_comment(
-                    vcs_client,
-                    pr_id,
-                    resolved_anchor["anchor"],
-                    severity,
-                    text,
-                    run_team_name,
-                )
-                posted_inline_count += 1
-            except requests.exceptions.RequestException as e:
-                logger.warning(
-                    "Failed to post inline comment for %s:%s - %s",
-                    resolved_anchor["path"],
-                    resolved_anchor["line"],
-                    e,
-                )
-
-        try:
-            upsert_summary_comment(
-                vcs_client,
-                pr_id,
-                verdict,
-                summary,
-                checklist,
-                run_team_name,
-            )
-        except requests.exceptions.RequestException:
-            logger.exception("Failed to post summary comment")
-
-        logger.info(
-            "Review run completed. pr_id=%s posted_inline=%s skipped_inline=%s",
-            pr_id,
-            posted_inline_count,
-            skipped_inline_count,
         )
 
     except Exception:

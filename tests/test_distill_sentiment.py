@@ -30,8 +30,8 @@ class DistillThreadAssociationTests(unittest.TestCase):
     def test_summary_comment_detection_uses_marker_and_summary_sections(self):
         summary_text = (
             "### #TEAM-ONE\n\n"
-            "**Verdict:** `APPROVED`\n\n"
-            "**Summary:** Looks good\n\n"
+            "**Outcome:** `Looks Good`\n\n"
+            "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"
         )
@@ -439,16 +439,16 @@ class DistillDpoExtractionTests(unittest.TestCase):
     def test_extract_dpo_pairs_ignores_all_summary_comments(self):
         summary_comment_legacy = (
             "### #TEAM-ONE\n\n"
-            "**Verdict:** `APPROVED`\n\n"
-            "**Summary:** Looks good\n\n"
+            "**Outcome:** `Looks Good`\n\n"
+            "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"
         )
         summary_comment_with_marker = (
             "### #TEAM-ONE\n\n"
             "<!-- reflex-reviewer-summary -->\n\n"
-            "**Verdict:** `CHANGES_SUGGESTED`\n\n"
-            "**Summary:** Follow up\n\n"
+            "**Outcome:** `Changes Suggested`\n\n"
+            "**Review Summary:** Follow up\n\n"
             "**Checklist**\n"
             "- Item"
         )
@@ -489,8 +489,8 @@ class DistillDpoExtractionTests(unittest.TestCase):
         bot_comment_rejected = "Please split this function\n\n### #TEAM-ONE"
         summary_comment = (
             "### #TEAM-ONE\n\n"
-            "**Verdict:** `APPROVED`\n\n"
-            "**Summary:** Looks good\n\n"
+            "**Outcome:** `Looks Good`\n\n"
+            "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"
         )

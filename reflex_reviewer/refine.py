@@ -10,7 +10,7 @@ from tenacity import (  # type: ignore[reportMissingImports]
     wait_exponential,
     retry_if_exception_type,
 )
-from .llm_api_client import (
+from .llm.api_client import (
     upload_file,
     create_fine_tune_job,
     retrieve_fine_tune_job_status,

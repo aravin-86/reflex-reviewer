@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from reflex_reviewer.review_response_state import ReviewResponseStateStore
+from reflex_reviewer.review_runtime.response_state import ReviewResponseStateStore
 
 
 class ReviewResponseStateStoreTests(unittest.TestCase):

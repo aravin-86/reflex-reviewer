@@ -3,6 +3,12 @@ You are given pull request context, existing feedback context, and a **draft rev
 
 Your task is to produce the final judge-approved review JSON.
 
+## Final Display Labels
+- Keep JSON schema fields as-is (including `verdict`), but downstream display mapping is:
+  - `APPROVED` -> `Looks Good`
+  - `CHANGES_SUGGESTED` -> `Changes Suggested`
+- Write `summary` content intended for the final **Review Summary** heading.
+
 ## PR Context
 - PR Title: {{PR_TITLE}}
 - PR Description: {{PR_DESCRIPTION}}
@@ -11,6 +17,15 @@ Your task is to produce the final judge-approved review JSON.
 Treat these root-level comments as already-covered findings.
 Do **not** keep or emit comments that are semantically the same unless there is materially new evidence/actionability.
 {{EXISTING_ROOT_COMMENTS}}
+
+## Repository Map (changed files)
+{{REPOSITORY_MAP}}
+
+## Deterministic Related Files (repo-local)
+{{RELATED_FILES_CONTEXT}}
+
+## Bounded Code Search (repo-local)
+{{CODE_SEARCH_CONTEXT}}
 
 ## Git Diff
 {{DIFF_CONTENT}}

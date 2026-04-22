@@ -59,6 +59,18 @@ skip_extensions = [
 ]
 skip_files = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "go.sum"]
 
+[review.repository_context]
+repository_path = "${REPOSITORY_PATH}"
+ignore_directories = "${REPOSITORY_IGNORE_DIRECTORIES|-dev-tools}"
+max_changed_files = 400
+max_repo_map_files = 150
+max_repo_map_chars = 100000
+max_related_files = 80
+max_related_files_chars = 150000
+max_code_search_results = 500
+max_code_search_chars = 150000
+max_code_search_query_terms = 50
+
 [distill]
 activities_fetch_limit = 1000
 max_llm_threads = 20

@@ -11,6 +11,7 @@
 
 ## What currently works (project capabilities snapshot)
 - PR review automation flow with model-generated summary and inline comment handling.
+- Repository-aware review context with Java-first language adapters (Java + Python) for repo map, related-file retrieval, and bounded code-search term derivation.
 - PR review inline severity normalization with fallback to `ADVISORY` for unknown labels.
 - Test-file advisory enforcement for review inline comments (posting + dedupe consistency).
 - Distillation flow to extract preference signals from PR feedback threads.
@@ -38,6 +39,209 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Fixed noisy repository code-search retrieval during review context construction:
+  - Root cause explained/confirmed:
+    - the `retrieve_code_search_context` node derives terms from changed-file summaries and then scans repository files; previously Java extraction could leak non-identifier tokens from textual content, and code search walked directories like `dev-tools`, so unrelated matches appeared.
+  - Implemented parser-backed Java extraction:
+    - `reflex_reviewer/repository_context/adapters.py` now uses `tree-sitter-java` for Java package/import/type/method extraction,
+    - avoids deriving terms from incidental string/comment text (for example `cannot`).
+  - Added configurable directory exclusion for repository code search:
+    - new review config key: `review.repository_context.ignore_directories`,
+    - env-backed variable: `REPOSITORY_IGNORE_DIRECTORIES`,
+    - default ignore includes `dev-tools`,
+    - wired through `config.py` -> `review.py` -> `review_graph_runtime/graph.py` -> `review_graph_runtime/nodes.py` -> `repository_context/service.py` (`ignore_directories` in bounded code search walk).
+  - Documentation/config updates:
+    - `reflex_reviewer.toml`, `.env.example`, and `README.md` updated with ignore-directory and parser-backed extraction behavior.
+    - dependencies updated in `requirements.txt` and `pyproject.toml` for `tree-sitter` and `tree-sitter-java`.
+  - Added/updated test coverage:
+    - `tests/test_repository_context_java.py` (parser extraction quality + no accidental `cannot` term promotion),
+    - `tests/test_repository_context_python.py` (ignore-directories behavior),
+    - `tests/test_config_runtime_overrides.py` (ignore-directory config/env resolution),
+    - graph and prompt expectation alignment in runtime/review tests.
+  - Verification:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_config_runtime_overrides tests.test_repository_context_python tests.test_repository_context_java tests.test_review_graph_runtime_nodes`
+    - Result: `Ran 59 tests ... OK`.
+
+- Added repository-context aggregate size observability in review graph composition:
+  - updated `reflex_reviewer/review_graph_runtime/nodes.py` (`compose_repository_context`) to log:
+    - total used repository-context chars (sum of `repo_map`, `related_files_context`, `code_search_context`),
+    - total configured char budget (sum of configured max-char limits for the same three sections),
+    - per-section used/configured chars.
+  - added a second dedicated log line with token estimates for used/configured totals using a lightweight `~4 chars/token` heuristic.
+  - added small helper normalization functions in `ReviewGraphNodes`:
+    - `_normalize_char_limit(...)`
+    - `_estimate_tokens_from_chars(...)`
+  - added unit coverage:
+    - `tests/test_review_graph_runtime_nodes.py`
+      - validates compose-stage logs include both total used/configured chars and total used/configured token estimates.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_nodes tests.test_repository_context_python tests.test_repository_context_java`
+    - Result: `Ran 12 tests ... OK`.
+
+- Increased review repository-context defaults to better utilize high context-window models and richer repository retrieval during nodes 3/4/5 (`build_repo_map`, `retrieve_related_files`, `retrieve_code_search_context`):
+  - updated runtime defaults in `reflex_reviewer/config.py` (`get_review_config()`):
+    - `max_changed_files`: `400`
+    - `max_repo_map_files`: `150`
+    - `max_repo_map_chars`: `100000`
+    - `max_related_files`: `80`
+    - `max_related_files_chars`: `150000`
+    - `max_code_search_results`: `500`
+    - `max_code_search_chars`: `150000`
+    - `max_code_search_query_terms`: `50`
+  - updated TOML defaults in `reflex_reviewer.toml` under `[review.repository_context]` to match runtime defaults.
+  - updated `README.md` configuration docs to list expanded repository-context defaults and tuning guidance for latency/token-cost constrained environments.
+  - updated config default assertions in `tests/test_config_runtime_overrides.py`.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides`
+    - Result: `Ran 21 tests ... OK`.
+
+- Reorganized runtime internals into clearer packages while keeping flow entry modules top-level (`review.py`, `distill.py`, `refine.py`):
+  - added packages:
+    - `reflex_reviewer/llm/`
+      - `__init__.py`
+      - `api_client.py` (moved from `llm_api_client.py`)
+      - `response_handler.py` (moved from `response_handler.py`)
+    - `reflex_reviewer/auth/`
+      - `__init__.py`
+      - `oauth2.py` (moved from `oauth2.py`)
+    - `reflex_reviewer/review_runtime/`
+      - `__init__.py`
+      - `response_state.py` (moved from `review_response_state.py`)
+  - updated imports across runtime modules:
+    - `reflex_reviewer/review.py`
+    - `reflex_reviewer/distill.py`
+    - `reflex_reviewer/refine.py`
+    - `reflex_reviewer/vcs/bitbucket_data_center.py`
+    - `reflex_reviewer/llm/api_client.py`
+    - `reflex_reviewer/auth/oauth2.py`
+  - updated tests for new package paths:
+    - `tests/test_llm_api_client.py`
+    - `tests/test_review_response_state.py`
+  - updated docs/module references:
+    - `README.md` (`reflex_reviewer/llm/api_client.py`, `python3 -m reflex_reviewer.auth.oauth2`)
+    - `memory-bank/systemPatterns.md`
+    - `memory-bank/activeContext.md`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_llm_api_client tests.test_review_response_state tests.test_review_model_api tests.test_distill_sentiment tests.test_bitbucket_data_center`
+    - Result: `Ran 85 tests ... OK`.
+
+- Completed package-first refactor for repository context and review graph runtime without backward-compatibility shims:
+  - added `reflex_reviewer/repository_context/` package:
+    - `__init__.py`
+    - `contract.py`
+    - `adapters.py`
+    - `service.py`
+  - added `reflex_reviewer/review_graph_runtime/` package:
+    - `__init__.py`
+    - `state.py`
+    - `agents.py`
+    - `nodes.py`
+    - `graph.py`
+  - removed legacy flat modules:
+    - `reflex_reviewer/repo_context.py`
+    - `reflex_reviewer/repo_context_adapters.py`
+    - `reflex_reviewer/repo_context_contract.py`
+    - `reflex_reviewer/review_graph.py`
+    - `reflex_reviewer/review_nodes.py`
+    - `reflex_reviewer/review_agents.py`
+    - `reflex_reviewer/review_graph_state.py`
+  - updated review entrypoint imports in `reflex_reviewer/review.py` to use new package paths.
+- Expanded repository scan ignore directories in `reflex_reviewer/repository_context/service.py` for Java/common build and tooling outputs:
+  - includes `target`, `classes`, `build`, `out`, `.gradle`, plus safe local cache/tool directories.
+- Strengthened safe observability in `reflex_reviewer/review_graph_runtime/nodes.py`:
+  - repo-map/related-files/code-search logs now include bounded preview snippets in addition to counts and sample paths/matches.
+- Split repository-context tests by language:
+  - added `tests/test_repository_context_java.py`
+  - added `tests/test_repository_context_python.py`
+  - removed old combined `tests/test_repo_context.py`
+- Updated README actuation graph documentation:
+  - switched references to `reflex_reviewer/review_graph_runtime/*`
+  - rewired Mermaid review graph to a larger, wrapped, three-row architecture layout.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s /Users/aranaras/repos/reflex-reviewer/tests -p 'test_repository_context_*.py'`
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest discover -s /Users/aranaras/repos/reflex-reviewer/tests -p 'test_review_model_api.py'`
+  - Result: `Ran 8 tests ... OK` and `Ran 23 tests ... OK`.
+
+- Implemented repository-aware review context in the graph-based review pipeline with deterministic retrieval and bounded prompt injection:
+  - added repository context utility module:
+    - `reflex_reviewer/repo_context.py`
+  - extended review graph state/nodes/graph wiring:
+    - new deterministic stages before prompt preparation:
+      - `extract_changed_files`
+      - `build_repo_map`
+      - `retrieve_related_files`
+      - `retrieve_code_search_context`
+      - `compose_repository_context`
+    - updated graph topology to fan out retrieval from `extract_changed_files` and fan in at `compose_repository_context`.
+  - extended review configuration and TOML:
+    - added `[review.repository_context]` in `reflex_reviewer.toml`
+    - added env-backed `repository_path = "${REPOSITORY_PATH}"`
+    - added bounded limits for changed files / repo map / related files / code search.
+  - integrated repository context into both draft and judge prompts:
+    - updated prompt templates:
+      - `reflex_reviewer/prompts/review_user_prompt.md`
+      - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+    - passed `repository_context_bundle` into judge prompt rendering path.
+  - updated documentation/env examples:
+    - `README.md`
+    - `.env.example`
+  - added targeted unit coverage:
+    - `tests/test_config_runtime_overrides.py`
+    - `tests/test_review_model_api.py`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides tests.test_review_model_api`
+    - Result: `Ran 44 tests ... OK`.
+
+- Added safe, minimal per-node trace logging for the sequential review graph runtime:
+  - updated `reflex_reviewer/review_nodes.py` with consistent node lifecycle logs:
+    - `Review node started...`
+    - `Review node completed...`
+    - `Review node skipped...` (for halted flows)
+  - updated `reflex_reviewer/review_agents.py` with the same lifecycle trace pattern for:
+    - `draft_reviewer`
+    - `evidence_judge`
+  - updated `reflex_reviewer/review_graph.py` with graph-level trace logs:
+    - graph execution start/completion
+    - fallback graph start/completion
+  - trace payload is intentionally minimal and safe:
+    - includes `node`, `pr_id`, and concise counters/metrics only,
+    - excludes prompt bodies, diff content, secrets, and raw model payloads.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_review_response_state`
+    - Result: `Ran 24 tests ... OK`.
+
+- Introduced sequential review graph orchestration with LangGraph-aligned architecture while preserving existing runtime behavior:
+  - added new review graph modules:
+    - `reflex_reviewer/review_graph.py`
+    - `reflex_reviewer/review_graph_state.py`
+    - `reflex_reviewer/review_nodes.py`
+    - `reflex_reviewer/review_agents.py`
+  - `reflex_reviewer/review.py` now delegates orchestration to `execute_review_graph(...)` while keeping existing helper functions and CLI contract intact.
+  - graph stage order is explicitly modeled as:
+    - `fetch_pr_context`
+    - `prepare_review_inputs`
+    - `draft_reviewer`
+    - `finding_normalizer`
+    - `evidence_judge`
+    - `summary_builder`
+    - `anchor_resolver`
+    - `policy_guard`
+    - `publish_review`
+  - deterministic guardrail behavior remains preserved:
+    - anchor-id resolution before posting,
+    - allowed severity normalization,
+    - test-file severity coercion to `ADVISORY`,
+    - append-only summary posting.
+  - added runtime dependency declarations for orchestration library:
+    - `pyproject.toml` -> `langgraph>=0.2.0`
+    - `requirements.txt` -> `langgraph>=0.2.0`
+  - added dependency-safe fallback in `review_graph.py`:
+    - when `langgraph` is unavailable, a sequential in-process fallback executor preserves node order and behavior.
+  - updated `README.md` review-flow documentation to explicitly mention graph-based sequential orchestration.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_review_response_state`
+    - Result: `Ran 24 tests ... OK`.
+
 - Updated LLM API HTTP logging to be header-only and added explicit success status logs:
   - updated `reflex_reviewer/llm_api_client.py`:
     - `_post_with_retry(...)` and `_get_with_retry(...)` now log only `response_headers` on HTTP failures (no response body preview).

@@ -1,71 +1,81 @@
 # Reflex Reviewer
 
-Reflex Reviewer is an **automated AI code review** system for pull requests (PRs), designed with a pluggable VCS integration layer.
+Reflex Reviewer is an **automated AI code review** system for pull requests. It runs a practical improvement loop: review PRs, collect human feedback on those reviews, and refine future behavior from distilled preference signals.
 
 > **VCS support status:** Reflex Reviewer currently supports **Bitbucket Data Center only**.  
-> **GitHub support is the next target** and is not available yet.
+> **GitHub support is the next target** and is not available yet.  
+> **Repository-aware review context:** **Java + Python support** with parser-backed extraction (`tree-sitter` for Java, built-in `ast` for Python).
 
-It runs as a self-improving loop:
-- review PRs,
-- collect human feedback on review comments,
-- refine behavior monthly or on-demand with DPO-based training signals.
-
-Reflex Reviewer is an **agentic ecosystem** with three collaborating flows: review (actuator), distill (observer), and refine (optimizer).
-
-## For the Nomenclature Nuts
-
-Reflex Reviewer is named after the **Reflexion AI pattern**—an architecture where an agent evaluates outcomes and improves over time.
-
-The name reflects a **Sense-Think-Act** cycle: continuous improvement that gets sharper with repeated feedback.
-
-It's called **Reflex** because, like a ***human reflex***, the improvement is automatic, integrated, and gets sharper with every interaction.
+At a glance:
+- **Review** analyzes a PR and posts structured feedback.
+- **Distill** turns reviewer responses and discussion signals into preference data.
+- **Refine** uses that data for monthly or on-demand DPO-based improvement.
 
 ## Table of Contents
 
 - [Reflex Reviewer](#reflex-reviewer)
-  - [For the Nomenclature Nuts](#for-the-nomenclature-nuts)
   - [Table of Contents](#table-of-contents)
-  - [1) How it works (end-to-end)](#1-how-it-works-end-to-end)
-    - [Architecture diagram](#architecture-diagram)
-    - [Refinement (DPO)](#refinement-dpo)
-  - [2) Reliability and retry strategy](#2-reliability-and-retry-strategy)
-    - [`reflex_reviewer/vcs/bitbucket_data_center.py`](#reflex_reviewervcsbitbucket_data_centerpy)
-    - [`reflex_reviewer/llm_api_client.py`](#reflex_reviewerllm_api_clientpy)
-  - [5) Runtime configuration (CLI)](#5-runtime-configuration-cli)
-  - [6) Standalone launcher deployment (CI/pipeline)](#6-standalone-launcher-deployment-cipipeline)
-    - [Standalone launcher (`reflex_reviewer_launcher.py`)](#standalone-launcher-reflex_reviewer_launcherpy)
-  - [7) Package-first usage (PyPI-ready)](#7-package-first-usage-pypi-ready)
-    - [Install from TestPyPI](#install-from-testpypi)
-    - [Publish to TestPyPI with Twine](#publish-to-testpypi-with-twine)
-  - [8) Local run examples](#8-local-run-examples)
-  - [9) Reuse from another repository](#9-reuse-from-another-repository)
-  - [10) Notes / limitations](#10-notes--limitations)
-  - [11) Future improvements](#11-future-improvements)
+  - [1. Overview](#1-overview)
+  - [2. Architecture](#2-architecture)
+    - [2.1 Architecture diagram](#21-architecture-diagram)
+    - [2.2 Review flow](#22-review-flow)
+    - [2.3 Review graph diagram](#23-review-graph-diagram)
+    - [2.4 Distill and refine](#24-distill-and-refine)
+    - [2.5 DPO in one paragraph](#25-dpo-in-one-paragraph)
+  - [3. Reliability](#3-reliability)
+  - [4. Configuration](#4-configuration)
+  - [5. Local usage](#5-local-usage)
+  - [6. CI / standalone launcher](#6-ci--standalone-launcher)
+  - [7. Package usage](#7-package-usage)
+    - [7.1 Install from TestPyPI](#71-install-from-testpypi)
+    - [7.2 Publish to TestPyPI with Twine](#72-publish-to-testpypi-with-twine)
+  - [8. Notes / limitations](#8-notes--limitations)
+  - [9. Future improvements](#9-future-improvements)
+  - [10. For the Nomenclature Nuts](#10-for-the-nomenclature-nuts)
 
-## 1) How it works (end-to-end)
+## 1. Overview
 
-### Architecture diagram
+Reflex Reviewer is built around a closed-loop workflow with three collaborating flows:
+
+1. **Review** analyzes pull request changes and publishes structured feedback.
+2. **Distill** converts reviewer responses and PR discussion signals into preference data.
+3. **Refine** uses the accumulated preference dataset to improve future review behavior through DPO-based fine-tuning.
+
+The review path is implementation-oriented rather than purely prompt-driven. Before any comment is published back to the VCS, the runtime combines deterministic orchestration, repository-aware context building, a draft review stage, and an evidence-checking judge stage.
+
+## 2. Architecture
+
+Reflex Reviewer has two main parts:
+- a **graph-orchestrated review pipeline** for PR actuation, and
+- a **learning loop** for distillation and refinement.
+
+Key ideas:
+- **Repository-aware context:** the review flow enriches the PR diff with deterministic repository context from a local checkout referenced by `REPOSITORY_PATH`.
+- **Parser-backed extraction:** Java context extraction uses `tree-sitter-java` (JDK 17+ friendly) and Python extraction uses built-in `ast`.
+- **Two-stage review:** `DRAFT_MODEL` proposes findings, and `JUDGE_MODEL` verifies them against available evidence before anything is posted.
+- **Deterministic guardrails:** final output is normalized, unresolved anchors are dropped, severities are constrained to `CRITICAL|MAJOR|ADVISORY`, and test-file comments are always forced to `ADVISORY`.
+- **Explicit runtime separation:** LLM agent stages live in `reflex_reviewer/review_graph_runtime/agents.py`, while orchestration and guardrails live in `reflex_reviewer/review_graph_runtime/nodes.py`.
+
+### 2.1 Architecture diagram
 
 ```mermaid
-%%{init: {'themeVariables': {'fontSize': '27px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'stepAfter', 'nodeSpacing': 60, 'rankSpacing': 45, 'padding': 20}} }%%
+%%{init: {'themeVariables': {'fontSize': '20px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'basis', 'nodeSpacing': 45, 'rankSpacing': 50, 'padding': 18}} }%%
 flowchart TB
-    classDef largeText fill:#e1f5fe,stroke:#01579b,stroke-width:3px,font-size:27px;
-    classDef loopTitle fill:transparent,stroke:transparent,color:#01579b,font-size:31px,font-weight:bold;
-    class repo,pipelineHooks,scheduler,draftReview,judgeReview,feedback,distill,data,refine largeText;
+    classDef primary fill:#e1f5fe,stroke:#01579b,stroke-width:2px,font-size:20px;
+    classDef secondary fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,font-size:20px;
+    classDef neutral fill:#f5f5f5,stroke:#546e7a,stroke-width:2px,font-size:19px;
+    classDef loopTitle fill:transparent,stroke:transparent,color:#01579b,font-size:24px,font-weight:bold;
 
     subgraph reviewLoop[" "]
       direction TB
       reviewTitle["Review Loop"]
-      subgraph reviewTop[" "]
+      subgraph reviewRow[" "]
         direction LR
         repo["VCS Repository"]
         pipelineHooks["Pipeline Hooks<br/>(PR updates, post-merge)"]
-        draftReview["review.py<br/>Draft Review (DRAFT_MODEL)"]
-      end
-      subgraph reviewBottom[" "]
-        direction LR
-        judgeReview["review.py<br/>Judge Review (JUDGE_MODEL)"]
-        feedback["Human feedback on comments"]
+        draftReview["review.py<br/>Draft Review<br/>(DRAFT_MODEL)"]
+        judgeReview["review.py<br/>Evidence Judge<br/>(JUDGE_MODEL)"]
+        feedback["Human Feedback<br/>on Review Comments"]
       end
       reviewTitle ~~~ repo
     end
@@ -76,7 +86,7 @@ flowchart TB
       subgraph learningRow[" "]
         direction LR
         distill["distill.py<br/>Distill (Observer)"]
-        data["DPO preference dataset"]
+        data["DPO Preference Dataset"]
         refine["refine.py<br/>Refine (Optimizer)"]
         scheduler["Scheduler<br/>(monthly schedule / on-demand)"]
       end
@@ -84,6 +94,9 @@ flowchart TB
     end
 
     class reviewTitle,learningTitle loopTitle;
+    class repo,pipelineHooks,distill,refine primary;
+    class draftReview,judgeReview secondary;
+    class feedback,data,scheduler neutral;
 
     repo --> pipelineHooks
     pipelineHooks -->|PR created / updated| draftReview
@@ -97,366 +110,151 @@ flowchart TB
     data --> refine
     refine -->|Improved model behavior| draftReview
 
-    linkStyle default stroke:#01579b,stroke-width:4px;
+    linkStyle default stroke:#01579b,stroke-width:3px;
 ```
 
-1. **Actuation / PR Review (`reflex_reviewer/review.py`)**
-   - Fetches PR diff + metadata from configured VCS provider
-   - Fetches paginated PR activities/comments and builds root-comment context (human + bot) to reduce repetitive suggestions
-   - Converts JSON diff to unified diff text, skips noisy files, truncates oversized diffs
-     - **Unified diff (short note):** Git-style patch text where `---`/`+++` are file headers, `@@ -a,b +c,d @@` is a hunk header, and line prefixes mean removed (`-`), added (`+`), or context (` `).
-     - **Incoming JSON diff shape (short note):** high-level structure is `diffs -> hunks -> segments -> lines` (for example: each diff has `source`/`destination`, each hunk has line spans, each segment has a `type` like `ADDED|REMOVED|CONTEXT`, and each segment contains line entries).
-   - Runs two-stage review inference:
-     - `DRAFT_MODEL` (broad issue finder / high-recall pass):
-       - analyzes diff + PR context and proposes initial findings,
-       - returns a draft structured payload (`verdict`, `summary`, `checklist`, `comments`),
-       - may include low-quality or duplicate findings that still need curation.
-     - `JUDGE_MODEL` (quality gate / precision pass):
-       - reviews the draft payload against the same PR context,
-       - keeps comments only when supported by provided evidence (diff/PR context/existing root comments),
-       - removes unsupported or hallucinated findings when evidence is insufficient,
-       - filters out vague/duplicate/non-actionable/speculative comments,
-       - rewrites retained comments to be concise and actionable,
-       - rewrites summary/checklist to match retained comments,
-       - preserves valid `anchor_id` usage and allowed severity taxonomy in final output.
-   - Parses structured output (`verdict`, `summary`, `checklist`, `comments`)
-   - Normalizes inline comment severities to the supported taxonomy: `CRITICAL`, `MAJOR`, `ADVISORY`
-   - Enforces `ADVISORY` severity for comments anchored to test files (for example under `tests/`, `test_*.py`, `*_test.py`)
-   - For responses API mode, uses configured `stream_response`; persists and reuses `previous_response_id` by PR context for the draft stage response when a response id is available
-   - Posts a new summary comment for every review run (append-only; existing summary comments are preserved)
-   - Relies on model/judge instructions plus existing root comments (human + bot; replies excluded) to avoid semantically duplicate findings
-   - Keeps posting path simple: no code-side rerun dedupe against existing inline comments
-   - Posts optional inline comments back to VCS
+### 2.2 Review flow
 
-2. **Distillation / Feedback Collection (`reflex_reviewer/distill.py`)**
-   - Reads paginated PR activities and builds root comment threads
-   - Excludes all review summary comments from sentiment classification and DPO pair extraction (supports both legacy summary shape and explicit summary marker)
-   - Ranks threads by reply count and selects top configured threads
-   - Preserves normalized bot-comment severity in batched sentiment payloads (`CRITICAL|MAJOR|ADVISORY`) with test-file comments coerced to `ADVISORY`
-   - Runs one batched LLM API classification pass per selected threads (`ACCEPTED`, `REJECTED`, `UNSURE`) using configured `stream_response`
-   - Appends only high-confidence preference samples (`ACCEPTED` / `REJECTED`) to the DPO dataset
+The PR review flow is orchestrated by `reflex_reviewer/review.py` through `reflex_reviewer/review_graph_runtime/graph.py`.
 
-3. **Refinement / Training (`reflex_reviewer/refine.py`)**
-   - Loads DPO dataset and validates minimum sample threshold
-   - Splits into train/validation sets (`train.jsonl`, `val.jsonl`) under `--dpo-training-data-dir` and starts DPO fine-tuning
-   - Polls fine-tune job until terminal state
-   - Clears temp cache only on successful completion
+High-level stages:
+- **Context gathering:** fetch PR metadata, diff, activities, and changed files.
+- **Repository enrichment:** build a repository map, related-file context, and bounded code-search context from `REPOSITORY_PATH`.
+- **Inference:** prepare prompt inputs, run `draft_reviewer`, normalize findings, and run `evidence_judge`.
+- **Publishing:** build the summary, resolve anchors, apply posting policy, and publish the review.
 
-### Refinement (DPO)
+Review behavior worth knowing:
+- Existing root comment context from humans and bots is used to reduce repetitive suggestions.
+- The same repository context bundle is injected into both the draft and judge prompt paths.
+- Every review run posts a fresh summary comment and may also publish inline comments.
 
-**What is DPO?**
+### 2.3 Review graph diagram
 
-Direct Preference Optimization (DPO) is a preference-learning method that trains a model from ranked pairs (chosen vs. rejected responses), without requiring a separate reward model or a full RL optimization loop.
+```mermaid
+%%{init: {'themeVariables': {'fontSize': '18px', 'lineColor': '#01579b', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'basis', 'nodeSpacing': 45, 'rankSpacing': 55, 'padding': 18}} }%%
+flowchart TB
+    classDef llmAgent fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,font-size:18px;
+    classDef deterministic fill:#e1f5fe,stroke:#01579b,stroke-width:2px,font-size:18px;
+    classDef terminal fill:#eceff1,stroke:#546e7a,stroke-width:2px,font-size:18px;
 
-**Why is DPO preferred here?**
+    subgraph ctx["Repository Context"]
+        direction LR
+        fetch_pr_context["fetch_pr_context"] --> extract_changed_files["extract_changed_files"]
+        extract_changed_files --> build_repo_map["build_repo_map"]
+        extract_changed_files --> retrieve_related_files["retrieve_related_files"]
+        extract_changed_files --> retrieve_code_search_context["retrieve_code_search_context"]
+    end
 
-- It maps directly to Reflex Reviewer’s distilled feedback signals (`ACCEPTED` vs `REJECTED`).
-- It is operationally simpler than RLHF-style training pipelines, which makes monthly/on-demand refinement easier to maintain.
-- It provides targeted behavior updates from reviewer preferences while preserving the base model’s general capabilities.
+    subgraph infer["Prompting and Review Agents"]
+        direction LR
+        compose_repository_context["compose_repository_context"] --> prepare_review_inputs["prepare_review_inputs"] --> draft_reviewer["draft_reviewer<br/>(Draft Reviewer)"] --> finding_normalizer["finding_normalizer"] --> evidence_judge["evidence_judge<br/>(Evidence Judge)"]
+    end
 
-**Compatibility note**
+    subgraph publish["Publishing and Guardrails"]
+        direction LR
+        summary_builder["summary_builder"] --> anchor_resolver["anchor_resolver"] --> policy_guard["policy_guard"] --> publish_review["publish_review"]
+    end
 
-For refine/fine-tuning workflows, ensure your selected model/backend supports both fine-tuning endpoints and file upload endpoints.
+    build_repo_map --> compose_repository_context
+    retrieve_related_files --> compose_repository_context
+    retrieve_code_search_context --> compose_repository_context
+    evidence_judge --> summary_builder
 
----
+    class draft_reviewer,evidence_judge llmAgent;
+    class fetch_pr_context,extract_changed_files,build_repo_map,retrieve_related_files,retrieve_code_search_context,compose_repository_context,prepare_review_inputs,finding_normalizer,summary_builder,anchor_resolver,policy_guard deterministic;
+    class publish_review terminal;
 
-## 2) Reliability and retry strategy
+    linkStyle default stroke:#01579b,stroke-width:3px;
+```
 
-VCS and LLM API HTTP paths both use `tenacity`, but with different wait windows:
+Diagram legend:
+- Purple nodes are **LLM agent nodes**.
+- Blue nodes are **deterministic orchestration, retrieval, or guardrail nodes**.
+- Gray terminal node is the final review publication stage.
 
-- **VCS HTTP retry policy** (`reflex_reviewer/vcs/bitbucket_data_center.py`)
-  - `wait=wait_exponential(multiplier=1, min=2, max=20)`
-  - `stop=stop_after_attempt(3)`
-  - `retry=retry_if_exception_type(requests.exceptions.RequestException)`
-  - `reraise=True`
-- **LLM API HTTP retry policy** (`reflex_reviewer/llm_api_client.py`)
-  - `wait=_retry_wait_seconds_with_retry_after` where:
-    - HTTP `429` honors `Retry-After` header when present/valid (supports both seconds and HTTP-date forms)
-    - fallback wait uses `wait_exponential(multiplier=2, min=65, max=180)`
-  - `stop=stop_after_attempt(3)`
-  - `retry=retry_if_exception(_is_retryable_request_exception)`
-  - `reraise=True`
+Key grouped stages:
+- **Context nodes:** `fetch_pr_context`, `extract_changed_files`, `build_repo_map`, `retrieve_related_files`, `retrieve_code_search_context`
+- **Inference nodes:** `compose_repository_context`, `prepare_review_inputs`, `draft_reviewer`, `finding_normalizer`, `evidence_judge`
+- **Publishing nodes:** `summary_builder`, `anchor_resolver`, `policy_guard`, `publish_review`
 
-### `reflex_reviewer/vcs/bitbucket_data_center.py`
+### 2.4 Distill and refine
 
-Retry-wrapped request helpers:
-- `_get_with_retry(...)`
-- `_post_with_retry(...)`
-- `_put_with_retry(...)`
+- **Distill (`reflex_reviewer/distill.py`)** reads PR activities, reconstructs root comment threads, excludes summary comments, classifies thread sentiment as `ACCEPTED`, `REJECTED`, or `UNSURE`, and appends only high-confidence accepted/rejected samples to the DPO dataset.
+- **Refine (`reflex_reviewer/refine.py`)** validates dataset readiness, splits training and validation data, starts fine-tuning against the configured backend, monitors job completion, and cleans temporary cache artifacts after success.
 
-These cover Bitbucket operations such as:
-- fetching PR diff,
-- fetching PR metadata,
-- paginated PR activity fetch,
-- posting review comments,
-- updating comments.
+### 2.5 DPO in one paragraph
 
-### `reflex_reviewer/llm_api_client.py`
+Reflex Reviewer uses **Direct Preference Optimization (DPO)** because it maps well to distilled reviewer signals like `ACCEPTED` vs `REJECTED`, is operationally simpler than a full RLHF-style pipeline, and supports targeted behavior improvement without requiring a separate reward model.
 
-Retry-wrapped request helpers:
-- `_post_with_retry(...)`
-- `_get_with_retry(...)`
+## 3. Reliability
 
-These cover LLM API operations such as:
-- chat completions,
-- responses API calls,
-- file upload,
-- fine-tune job creation,
-- fine-tune status retrieval.
+Both VCS and LLM API HTTP paths use retry handling via `tenacity`, but the policies are intentionally different:
+- **VCS calls** use a shorter retry window for transient request failures.
+- **LLM API calls** use a slower retry window and honor `Retry-After` on HTTP `429` when available.
 
-After retries are exhausted, request exceptions propagate to callers; response parsing failures are surfaced explicitly (`LLMAPIResponseParseError`) so callers can handle them separately.
+After retry exhaustion, request exceptions are surfaced to callers. Response parsing failures are raised explicitly as `LLMAPIResponseParseError` so they can be handled separately.
 
----
+## 4. Configuration
 
-## 5) Runtime configuration (CLI)
-
-Use CLI arguments for runtime behavior. Core commands:
-
+Use CLI arguments for runtime behavior. Core commands are:
 - `python3 -m reflex_reviewer.review`
 - `python3 -m reflex_reviewer.distill`
 - `python3 -m reflex_reviewer.refine`
 
-Required CLI arguments:
-- `--team-name` (all commands)
-- `--dpo-training-data-dir` (required for `distill` and `refine`)
+Important CLI arguments:
+- `--team-name` for all commands
+- `--dpo-training-data-dir` for `distill` and `refine`
+- `--pr-id` for `review` and `distill`
+- `--draft-model`, `--judge-model`, and `--stream-response` when you want to override model settings
 
-`--dpo-training-data-dir` is the parent directory for DPO datasets. The effective JSONL file is derived per team as:
-- `<dpo_training_data_dir>/{sanitized_team_name}_dpo_training_data.jsonl`
+Configuration sources are intended to work together:
+- CLI overrides
+- environment variables
+- `reflex_reviewer.toml`
 
-Where `sanitized_team_name` is generated from `--team-name` by:
-- lowercasing the team name,
-- replacing non-alphanumeric separators with `_` (for example, `TEAM-DEV` → `team_dev`).
+Important settings in `reflex_reviewer.toml`:
+- `[model]`
+  - `draft_model`
+  - `judge_model`
+  - `stream_response`
+  - `model_endpoint`
+  - `reasoning_effort`
+- `[llm_api]`
+  - `read_timeout_seconds`
+- `[review.repository_context]`
+  - `repository_path`
+  - `ignore_directories` (env-backed via `REPOSITORY_IGNORE_DIRECTORIES`, default: `dev-tools`)
+  - `max_changed_files` (default: `400`)
+  - `max_repo_map_files` (default: `150`)
+  - `max_repo_map_chars` (default: `100000`)
+  - `max_related_files` (default: `80`)
+  - `max_related_files_chars` (default: `150000`)
+  - `max_code_search_results` (default: `500`)
+  - `max_code_search_chars` (default: `150000`)
+  - `max_code_search_query_terms` (default: `50`)
 
-Model/runtime values can be set in `reflex_reviewer.toml` under `[model]`:
-- `draft_model` (review flow: generates initial draft review payload)
-- `judge_model` (review flow: verifies evidence, removes unsupported/hallucinated findings, then curates final payload)
-- `stream_response`
-- `model_endpoint` (`chat_completions` default, or `responses` if your org/backend supports stateful `previous_response_id` flows)
-- `reasoning_effort`
+Important behavior notes:
+- `--dpo-training-data-dir` is the parent directory for team-specific DPO datasets.
+- `LLM_API_KEY` enables direct API-key auth; otherwise runtime falls back to OAuth2 token auth.
+- `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML socket read timeout.
+- `REPOSITORY_PATH` points repository-aware review at a local checkout; if unset or invalid, review safely continues with PR context only.
+- `REPOSITORY_IGNORE_DIRECTORIES` adds comma-separated directory names to exclude during repository code-search scanning (default includes `dev-tools` via TOML).
 
-CLI can still override model values when needed:
-- `--draft-model`
-- `--judge-model` (review flow)
-- `--stream-response`
-
-Common optional CLI arguments:
-- `--pr-id` (review/distill)
-- `--vcs-type` (review/distill)
-- runtime override flags for VCS and LLM API endpoints/credentials (for example: `--vcs-base-url`, `--llm-api-base-url`, `--llm-api-key`)
-
-LLM API timeout configuration:
-- `llm_api.read_timeout_seconds` in `reflex_reviewer.toml` controls LLM API socket read timeout (default `30`).
-- `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML value at runtime.
-
-LLM API auth behavior:
-- If `LLM_API_KEY` (or CLI `--llm-api-key`) is set, LLM API requests use that API key.
-- If no API key is provided, LLM API requests fall back to OAuth2 token auth.
-- CLI `--llm-api-key` takes precedence over env/TOML configuration.
-
-For all environment variables, default values, and env interpolation behavior, refer to **`reflex_reviewer.toml`**.
-
----
-
-## 6) Standalone launcher deployment (CI/pipeline)
-
-Deployment examples below use a single entrypoint only:
-
-- `python3 reflex_reviewer_launcher.py`
-
-Flow selection and runtime wiring are fully env-driven:
-
-- command selector: `RR_LAUNCHER_COMMAND=review|distill|refine`
-- PR id source for `review`/`distill`: `PR_ID` (or other supported PR env candidates)
-- optional passthrough args (still env-only): `RR_LAUNCHER_ARGS='...'`
-
-### Standalone launcher (`reflex_reviewer_launcher.py`)
-
-For copy-friendly build pipeline usage, copy these two files into your pipeline workspace:
-
-- `standalone_launcher/reflex_reviewer_launcher.py`
-- `standalone_launcher/reflex_reviewer_bootstrap.py`
-
-Run only the launcher. It internally imports and uses the bootstrap module.
-
-Launcher bootstrap behavior is deterministic and reuse-first:
-- reuse existing runner venv when bootstrap inputs match and venv is healthy,
-- rebuild venv when missing/broken, bootstrap inputs changed, or force-refresh is enabled,
-- install/upgrade required package dependencies during rebuild,
-- run selected flow command using the resolved venv interpreter.
-
-Run with a single command (env-driven mode):
-
-- `RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py`
-- `RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py`
-- `RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py`
-
-Optional env arg passthrough (for PR id and other flow-specific CLI args):
-
-- `RR_LAUNCHER_ARGS='123 --stream-response false'`
-
-PR id resolution (`review` and `distill`) follows this order:
-
-1. first positional argument
-2. `PR_ID`
-3. `VCS_PR_ID`
-4. `BITBUCKET_PR_ID`
-5. `BITBUCKET_PULL_REQUEST_ID`
-6. `PULL_REQUEST_ID`
-
-Required environment variables:
-
-- Required by all runner commands:
-  - `TEAM_NAME`
-  - `DRAFT_MODEL`
-  - `LLM_API_BASE_URL`
-- Required by `review` and `distill`:
-  - `VCS_BASE_URL`
-  - `VCS_PROJECT_KEY`
-  - `VCS_REPO_SLUG`
-  - `VCS_TOKEN`
-- Required by `review`:
-  - `JUDGE_MODEL`
-- Required by `distill` and `refine`:
-  - `DPO_TRAINING_DATA_DIR`
-
-LLM API auth configuration (choose one):
-
-- `LLM_API_KEY`, or
-- `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
-
-Optional:
-
-- `LLM_API_PROXY_URL` (optional proxy for outbound LLM API calls)
-- `PYTHON_BIN` (optional bootstrap interpreter override)
-- `RR_LAUNCHER_ARGS` (optional env-based argument passthrough)
-- `RR_RUNNER_VENV_DIR` (optional venv directory; default: `./.reflex-reviewer-venv` next to launcher)
-- `RR_PACKAGE_INSTALL_TARGET` (optional pip install target; default: `reflex-reviewer`)
-- `RR_PACKAGE_INDEX_URL` (optional pip `--index-url` override)
-- `RR_PACKAGE_EXTRA_INDEX_URL` (optional pip `--extra-index-url` override)
-- `RR_FORCE_REBUILD_VENV` (optional hard refresh flag; truthy values like `1|true|yes|on` force venv rebuild)
-
-Example invocations:
+To enable repository-aware review context in practice, export `REPOSITORY_PATH` to the checked-out repository you want Reflex Reviewer to inspect. Example:
 
 ```bash
-# Shared env for all deployment steps
-export TEAM_NAME="<TEAM_NAME>"
-export DRAFT_MODEL="<DRAFT_MODEL>"
-export JUDGE_MODEL="<JUDGE_MODEL>"             # required by review
-export LLM_API_BASE_URL="<LLM_API_BASE_URL>"
-
-# Required by review/distill only
-export VCS_BASE_URL="<VCS_BASE_URL>"
-export VCS_PROJECT_KEY="<VCS_PROJECT_KEY>"
-export VCS_REPO_SLUG="<VCS_REPO_SLUG>"
-export VCS_TOKEN="<VCS_TOKEN>"
-
-# Auth: choose one mode
-export LLM_API_KEY="<LLM_API_KEY>"
-# OR
-# export OAUTH2_TOKEN_URL="<OAUTH2_TOKEN_URL>"
-# export OAUTH2_USER_ID="<OAUTH2_USER_ID>"
-# export OAUTH2_USER_SECRET="<OAUTH2_USER_SECRET>"
-
-# PR create/update deployment step -> review
-export PR_ID="123"
-RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py
-
-# Post-merge deployment step -> distill
-export DPO_TRAINING_DATA_DIR="data"
-RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py
-
-# Monthly/on-demand deployment step -> refine
-RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py
+export REPOSITORY_PATH="/absolute/path/to/checked-out-repository"
 ```
 
-All deployment examples above are launcher-only and env-only. No module command invocation is required in pipeline jobs.
+Without `REPOSITORY_PATH`, review still runs, but repository map, related-file retrieval, and bounded code-search enrichment are skipped.
 
----
+Repository-aware context defaults are intentionally configurable and now tuned for larger context-window backends. If your runtime has strict latency or token-cost limits, lower `[review.repository_context]` char/result caps in `reflex_reviewer.toml`.
 
-## 7) Package-first usage (PyPI-ready)
+For the complete list of environment variables, defaults, and env interpolation behavior, refer to **`reflex_reviewer.toml`**.
 
-This repository is organized as a Python package: `reflex_reviewer`.
+## 5. Local usage
 
-Build backend: this project uses **Hatchling** via `pyproject.toml`.
-
-Published TestPyPI release:
-- https://test.pypi.org/project/reflex-reviewer/
-
-- Install locally: `pip install .`
-
-Optional wheel build validation:
-
-```bash
-python3 -m build --wheel
-```
-
-### Install from TestPyPI
-
-Use TestPyPI as the primary index and PyPI as a fallback for dependencies:
-
-```bash
-pip install \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  reflex-reviewer
-```
-
-### Publish to TestPyPI with Twine
-
-Install packaging/publish tooling:
-
-```bash
-pip install ".[publish]"
-```
-
-Build and upload:
-
-```bash
-python3 -m build --wheel
-TWINE_USERNAME=__token__ \
-TWINE_PASSWORD="<TESTPYPI_TOKEN>" \
-python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*.whl
-```
-
-```python
-import reflex_reviewer
-
-reflex_reviewer.review(
-    team_name="<TEAM_NAME>",
-    draft_model="<DRAFT_MODEL>",
-    judge_model="<JUDGE_MODEL>",
-)
-reflex_reviewer.distill(
-    team_name="<TEAM_NAME>",
-    draft_model="<DRAFT_MODEL>",
-    dpo_training_data_dir="<TRAINING_DATA_DIR>",
-)
-reflex_reviewer.refine(
-    team_name="<TEAM_NAME>",
-    draft_model="<DRAFT_MODEL>",
-    dpo_training_data_dir="<TRAINING_DATA_DIR>",
-)
-```
-
-Console entry points after install:
-- `reflex-review`
-- `reflex-distill`
-- `reflex-refine`
-
-Core components:
-- **`reflex_reviewer/review.py` — Actuator**: fetches PR context, runs review, posts comments.
-- **`reflex_reviewer/distill.py` — Observer**: gathers PR feedback, classifies thread sentiment, prepares training signals.
-- **`reflex_reviewer/refine.py` — Optimizer**: runs DPO fine-tuning from distilled data.
-
-VCS implementation subpackage:
-- `reflex_reviewer/vcs/bitbucket_data_center.py`
-- `reflex_reviewer/vcs/vcs_client.py`
-
----
-
-## 8) Local run examples
-
-Run commands from project root (contains `pyproject.toml` and `README.md`).
+Run commands from the project root (the directory containing `pyproject.toml` and `README.md`).
 
 Install locally:
 
@@ -464,7 +262,7 @@ Install locally:
 pip install .
 ```
 
-Recommended local unit test bootstrap (isolated venv):
+Recommended local unit test bootstrap:
 
 ```bash
 python3 -m venv .venv
@@ -484,7 +282,7 @@ Optional local env bootstrap:
 cp .env.example .env
 ```
 
-Run review for specific PR:
+Run review for a specific PR:
 
 ```bash
 python3 -m reflex_reviewer.review \
@@ -513,14 +311,6 @@ python3 -m reflex_reviewer.refine \
   --dpo-training-data-dir "<TRAINING_DATA_DIR>"
 ```
 
-Run standalone launcher (copy `standalone_launcher/reflex_reviewer_launcher.py` and `standalone_launcher/reflex_reviewer_bootstrap.py`):
-
-```bash
-RR_LAUNCHER_COMMAND=review RR_LAUNCHER_ARGS='<PR_ID>' python3 reflex_reviewer_launcher.py
-RR_LAUNCHER_COMMAND=distill RR_LAUNCHER_ARGS='<PR_ID>' python3 reflex_reviewer_launcher.py
-RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py
-```
-
 Show CLI help:
 
 ```bash
@@ -529,86 +319,171 @@ python3 -m reflex_reviewer.distill --help
 python3 -m reflex_reviewer.refine --help
 ```
 
-Get OAuth2 access token directly (prints token to stdout):
+Get an OAuth2 access token directly (prints the token to stdout):
 
 ```bash
-python3 -m reflex_reviewer.oauth2
+python3 -m reflex_reviewer.auth.oauth2
 ```
 
----
+## 6. CI / standalone launcher
 
-## 9) Reuse from another repository
+For CI or pipeline usage, use a single entrypoint:
 
-If you clone this repo as shared tooling in another pipeline:
+- `python3 reflex_reviewer_launcher.py`
 
-```yaml
-- git clone https://bitbucket.org/<workspace>/reflex-reviewer.git reflex-reviewer
-- pip install ./reflex-reviewer
-```
+Flow selection is env-driven:
+- `RR_LAUNCHER_COMMAND=review|distill|refine`
+- `RR_LAUNCHER_ARGS='...'` for optional passthrough args
+- `PR_ID` is the normal PR identifier source for `review` and `distill`
 
-After installing packages, bootstrap your env file from `.env.example`:
+Copy these two files into your pipeline workspace:
+- `standalone_launcher/reflex_reviewer_launcher.py`
+- `standalone_launcher/reflex_reviewer_bootstrap.py`
+
+Launcher behavior:
+- reuses an existing runner venv when bootstrap inputs match and the venv is healthy,
+- rebuilds the venv when it is missing, broken, inputs changed, or `RR_FORCE_REBUILD_VENV` is enabled,
+- installs required package dependencies during rebuild,
+- runs the selected flow command with the resolved interpreter.
+
+Required environment variables:
+- **All flows**
+  - `TEAM_NAME`
+  - `DRAFT_MODEL`
+  - `LLM_API_BASE_URL`
+- **Review + distill**
+  - `VCS_BASE_URL`
+  - `VCS_PROJECT_KEY`
+  - `VCS_REPO_SLUG`
+  - `VCS_TOKEN`
+- **Review only**
+  - `JUDGE_MODEL`
+- **Distill + refine**
+  - `DPO_TRAINING_DATA_DIR`
+
+LLM auth options:
+- `LLM_API_KEY`, or
+- `OAUTH2_TOKEN_URL` + `OAUTH2_USER_ID` + `OAUTH2_USER_SECRET`
+
+Useful optional variables:
+- `LLM_API_PROXY_URL`
+- `PYTHON_BIN`
+- `RR_RUNNER_VENV_DIR`
+- `RR_PACKAGE_INSTALL_TARGET`
+- `RR_PACKAGE_INDEX_URL`
+- `RR_PACKAGE_EXTRA_INDEX_URL`
+- `RR_FORCE_REBUILD_VENV`
+
+Example:
 
 ```bash
-cp reflex-reviewer/.env.example .env
+export TEAM_NAME="<TEAM_NAME>"
+export DRAFT_MODEL="<DRAFT_MODEL>"
+export JUDGE_MODEL="<JUDGE_MODEL>"
+export LLM_API_BASE_URL="<LLM_API_BASE_URL>"
+
+export VCS_BASE_URL="<VCS_BASE_URL>"
+export VCS_PROJECT_KEY="<VCS_PROJECT_KEY>"
+export VCS_REPO_SLUG="<VCS_REPO_SLUG>"
+export VCS_TOKEN="<VCS_TOKEN>"
+
+export LLM_API_KEY="<LLM_API_KEY>"
+export PR_ID="123"
+RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py
+
+export DPO_TRAINING_DATA_DIR="data"
+RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py
+RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py
 ```
 
-Then update `.env` with your runtime values:
+## 7. Package usage
 
-- VCS context: `VCS_BASE_URL`, `VCS_PROJECT_KEY`, `VCS_REPO_SLUG`, `VCS_TOKEN`.
-- PR id context for review/distill: `PR_ID` (or one of `VCS_PR_ID`, `BITBUCKET_PR_ID`, `BITBUCKET_PULL_REQUEST_ID`, `PULL_REQUEST_ID`).
-- LLM API endpoint/model: `LLM_API_BASE_URL`, `DRAFT_MODEL` (draft generation in review + model for distill/refine).
-- Optional LLM API networking: `LLM_API_PROXY_URL`.
-- Optional LLM API read timeout override: `LLM_API_READ_TIMEOUT_SECONDS`.
-- Judge model (review flow): `JUDGE_MODEL` (evidence-backed verification + final curation/rewrite before posting).
-- Auth (choose one):
-  - Set `LLM_API_KEY`, **or**
-  - Leave `LLM_API_KEY` empty and set `OAUTH2_TOKEN_URL`, `OAUTH2_USER_ID`, `OAUTH2_USER_SECRET`.
-- Optional runtime toggles: `STREAM_RESPONSE`, `MODEL_ENDPOINT`, `LLM_API_REASONING_EFFORT`.
+This repository is organized as a Python package: `reflex_reviewer`. The build backend is **Hatchling**, configured through `pyproject.toml`.
 
-If your shell/pipeline does not auto-load `.env`, export it before running commands:
+Published TestPyPI release:
+- https://test.pypi.org/project/reflex-reviewer/
+
+Install locally:
 
 ```bash
-set -a; source .env; set +a
+pip install .
 ```
 
-Run review:
+Optional wheel build validation:
 
-- `PR_ID='<PR_ID>' RR_LAUNCHER_COMMAND=review python3 reflex_reviewer_launcher.py`
+```bash
+python3 -m build --wheel
+```
 
-Post-merge and monthly/on-demand jobs:
-- `PR_ID='<PR_ID>' DPO_TRAINING_DATA_DIR='<TRAINING_DATA_DIR>' RR_LAUNCHER_COMMAND=distill python3 reflex_reviewer_launcher.py`
-- `RR_LAUNCHER_COMMAND=refine python3 reflex_reviewer_launcher.py`
+### 7.1 Install from TestPyPI
 
----
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  reflex-reviewer
+```
 
-## 10) Notes / limitations
+Console entry points after install:
+- `reflex-review`
+- `reflex-distill`
+- `reflex-refine`
+
+Optional Python API usage:
+
+```python
+import reflex_reviewer
+
+reflex_reviewer.review(
+    team_name="<TEAM_NAME>",
+    draft_model="<DRAFT_MODEL>",
+    judge_model="<JUDGE_MODEL>",
+)
+
+reflex_reviewer.distill(
+    team_name="<TEAM_NAME>",
+    draft_model="<DRAFT_MODEL>",
+    dpo_training_data_dir="<TRAINING_DATA_DIR>",
+)
+
+reflex_reviewer.refine(
+    team_name="<TEAM_NAME>",
+    draft_model="<DRAFT_MODEL>",
+    dpo_training_data_dir="<TRAINING_DATA_DIR>",
+)
+```
+
+### 7.2 Publish to TestPyPI with Twine
+
+```bash
+pip install ".[publish]"
+python3 -m build --wheel
+TWINE_USERNAME=__token__ \
+TWINE_PASSWORD="<TESTPYPI_TOKEN>" \
+python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*.whl
+```
+
+## 8. Notes / limitations
 
 - Current VCS integration support is limited to **Bitbucket Data Center**.
 - **GitHub support is planned next** and is not yet implemented.
 - Distillation quality depends on reviewer feedback quality and thread clarity.
-- `UNSURE`/ambiguous sentiment threads are skipped to protect DPO data quality.
+- `UNSURE` or ambiguous sentiment threads are skipped to protect DPO data quality.
 - Very large PRs may be truncated for safety limits.
 - Improvement quality depends on sustained reviewer participation.
 
----
+## 9. Future improvements
 
-## 11) Future improvements
+- Add **large-PR chunked review orchestration** so Reflex Reviewer can split very large pull requests into multiple draft-model review passes while preserving prior chunk context through explicit structured rolling memory and deterministic finding merge before final judging.
+- Add **GitHub** as the next supported VCS provider.
+- Expand **repository-aware review context** beyond the current Java/Python adapter implementation.
+- Improve **DPO data quality and observability**, including deduplication, lineage tracking, and acceptance metrics.
+- Support model routing by repository or language.
+- Add more VCS client implementations through the VCS factory.
+- Add **retrieval-backed preference memory** from distilled DPO pairs to improve review quality during live review runs.
 
-- Add **repository-aware review context** using deterministic code intelligence:
-  - Build a **Repository Map** using Tree-sitter to extract compact file/module structure for changed files.
-  - Add deterministic **import-graph retrieval** to resolve repo-local files imported by changed files.
-  - Inject bounded repository structure and related-file context into both draft and judge review prompts.
-  - Keep retrieval deterministic, lightweight, and token-bounded rather than embedding/vector based.
-  - Start with Python support first, then expand to other languages over time.
-- Add **GitHub** VCS integration as the next supported provider.
-- Improve **DPO data quality and observability**:
-  - Strengthen sample deduplication and lineage tracking.
-  - Track precision/acceptance metrics over time.
-  - Add confidence thresholds before posting high-severity inline comments.
-- Support model routing by repository/language for better specialization.
-- Add additional VCS client implementations via the VCS factory.
-- Add **retrieval-backed preference memory** from distilled DPO pairs to improve review quality on the fly:
-  - During distill, index accepted/rejected preference exemplars with compact metadata.
-  - During review, retrieve top relevant exemplars and inject concise preference guidance into the prompt.
-  - Optionally rerank/filter generated inline comments against retrieved rejected patterns before posting.
-  - Keep this as an online augmentation layer while preserving offline monthly/on-demand DPO refine cycles.
+## 10. For the Nomenclature Nuts
+
+Reflex Reviewer is named after the **Reflexion AI pattern**: an approach where an agent evaluates outcomes and improves over time.
+
+The name reflects a **Sense-Think-Act** cycle and the idea that improvement becomes more automatic and sharper with repeated feedback.

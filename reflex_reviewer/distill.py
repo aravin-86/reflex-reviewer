@@ -12,8 +12,8 @@ from .config import (
     resolve_dpo_training_data_file_path,
     set_runtime_overrides,
 )
-from .llm_api_client import LLMAPIResponseParseError, chat_completions, responses
-from .response_handler import (
+from .llm.api_client import LLMAPIResponseParseError, chat_completions, responses
+from .llm.response_handler import (
     extract_content_from_stream_response,
     parse_batched_sentiment_response,
 )
@@ -34,6 +34,10 @@ VALID_SENTIMENTS = {SENTIMENT_ACCEPTED, SENTIMENT_REJECTED, SENTIMENT_UNSURE}
 ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
+SUMMARY_COMMENT_SECTIONS = (
+    ("**Verdict:**", "**Summary:**", "**Checklist**"),
+    ("**Outcome:**", "**Review Summary:**", "**Checklist**"),
+)
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
@@ -153,7 +157,12 @@ def _is_summary_comment_text(text, team_name=""):
 
     if not _is_bot_comment_text(text, team_name):
         return False
-    return "**Verdict:**" in text and "**Summary:**" in text and "**Checklist**" in text
+
+    normalized_text = str(text or "")
+    return any(
+        all(section in normalized_text for section in summary_section)
+        for summary_section in SUMMARY_COMMENT_SECTIONS
+    )
 
 
 def _normalize_repo_path(file_path):

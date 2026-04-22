@@ -5,6 +5,55 @@ import reflex_reviewer.review as review_module
 
 
 class ReviewModelApiTests(unittest.TestCase):
+    def test_extract_changed_file_paths_from_diff_normalizes_and_deduplicates(self):
+        raw_diff_data = {
+            "diffs": [
+                {
+                    "source": {"toString": "a/src/old_module.py"},
+                    "destination": {"toString": "b/src/new_module.py"},
+                },
+                {
+                    "destination": {"toString": "src/new_module.py"},
+                },
+                {
+                    "destination": {"toString": "/dev/null"},
+                },
+            ]
+        }
+
+        changed_files = review_module.extract_changed_file_paths_from_diff(raw_diff_data)
+
+        self.assertEqual(
+            changed_files,
+            ["src/new_module.py", "src/old_module.py"],
+        )
+
+    def test_build_judge_prompt_user_content_includes_repository_context_sections(self):
+        prompt_template = (
+            "Repo map:\n{{REPOSITORY_MAP}}\n\n"
+            "Related:\n{{RELATED_FILES_CONTEXT}}\n\n"
+            "Search:\n{{CODE_SEARCH_CONTEXT}}\n\n"
+            "Draft:\n{{DRAFT_REVIEW_JSON}}"
+        )
+
+        rendered_prompt = review_module._build_judge_prompt_user_content(
+            prompt_template=prompt_template,
+            pr_title="t",
+            pr_description="d",
+            safe_diff="diff",
+            existing_feedback="feedback",
+            draft_review_data={"comments": []},
+            repository_context_bundle={
+                "repo_map": "repo map ctx",
+                "related_files_context": "related ctx",
+                "code_search_context": "search ctx",
+            },
+        )
+
+        self.assertIn("repo map ctx", rendered_prompt)
+        self.assertIn("related ctx", rendered_prompt)
+        self.assertIn("search ctx", rendered_prompt)
+
     def test_extract_pr_description_summary_and_changes_ignores_test_results(self):
         description = """Summary
 OSD-11172: Implementation to use evergreen OS image for Proxy and GSM compute instance.
@@ -145,7 +194,7 @@ Smoke tested in DEV"""
                 "action": "COMMENTED",
                 "comment": {
                     "id": 13,
-                    "text": "### #TEAM-ONE\n\n<!-- reflex-reviewer-summary -->\n\n**Verdict:** `APPROVED`\n\n**Summary:** ok\n\n**Checklist**\n- None",
+                    "text": "### #TEAM-ONE\n\n<!-- reflex-reviewer-summary -->\n\n**Outcome:** `Looks Good`\n\n**Review Summary:** ok\n\n**Checklist**\n- None",
                 },
             },
         ]
@@ -158,7 +207,7 @@ Smoke tested in DEV"""
             context,
         )
         self.assertNotIn("reply should not be included", context)
-        self.assertNotIn("**Verdict:**", context)
+        self.assertNotIn("**Outcome:**", context)
 
     def test_is_bot_comment_text_supports_hashtag_and_legacy_markers(self):
         self.assertTrue(
@@ -187,6 +236,8 @@ Smoke tested in DEV"""
 
         self.assertIn("### #TEAM-PRODUCT", body)
         self.assertIn("<!-- reflex-reviewer-summary -->", body)
+        self.assertIn("**Outcome:** `Looks Good`", body)
+        self.assertIn("**Review Summary:** ok", body)
 
     def test_upsert_summary_comment_posts_without_deleting_existing_summary(self):
         vcs_client = Mock()
@@ -397,6 +448,33 @@ Smoke tested in DEV"""
             "Purpose (from PR title + description): PR Title: title", draft_user_prompt
         )
         self.assertNotIn("{{PURPOSE}}", draft_user_prompt)
+        self.assertTrue(
+            (
+                "Repository map unavailable" in draft_user_prompt
+                or "No changed files were mappable under REPOSITORY_PATH." in draft_user_prompt
+            )
+        )
+        self.assertTrue(
+            (
+                "Related-file retrieval unavailable" in draft_user_prompt
+                or "No deterministic related files were found for changed files."
+                in draft_user_prompt
+            )
+        )
+        self.assertTrue(
+            (
+                "Code search unavailable" in draft_user_prompt
+                or "No bounded code search matches were found for deterministic query terms."
+                in draft_user_prompt
+                or "Search terms:" in draft_user_prompt
+            )
+        )
+
+        judge_review_call = mock_get_review_model_completion.call_args_list[1]
+        judge_user_prompt = judge_review_call.args[2]
+        self.assertNotIn("{{REPOSITORY_MAP}}", judge_user_prompt)
+        self.assertNotIn("{{RELATED_FILES_CONTEXT}}", judge_user_prompt)
+        self.assertNotIn("{{CODE_SEARCH_CONTEXT}}", judge_user_prompt)
 
         self.assertEqual(vcs_client.post_comment.call_count, 2)
         inline_call = vcs_client.post_comment.call_args_list[0]
@@ -404,7 +482,8 @@ Smoke tested in DEV"""
         self.assertIn("anchor", inline_call.kwargs)
         self.assertNotIn("anchor", summary_call.kwargs)
         summary_body = summary_call.args[1]
-        self.assertIn("**Verdict:**", summary_body)
+        self.assertIn("**Outcome:** `Changes Suggested`", summary_body)
+        self.assertIn("**Review Summary:** final summary", summary_body)
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")

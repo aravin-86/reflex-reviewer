@@ -7,7 +7,7 @@ from authlib.integrations.requests_client import (
     OAuth2Session,
 )  # pyright: ignore[reportMissingModuleSource]
 
-from .config import get_oauth2_config
+from ..config import get_oauth2_config
 
 
 logger = logging.getLogger(__name__)

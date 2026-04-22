@@ -12,8 +12,8 @@ from tenacity import (  # type: ignore[reportMissingImports,reportMissingModuleS
     wait_exponential,
 )
 
-from .config import get_llm_api_config
-from .oauth2 import get_oauth2_token
+from ..config import get_llm_api_config
+from ..auth.oauth2 import get_oauth2_token
 
 logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {408, 409, 425, 429}

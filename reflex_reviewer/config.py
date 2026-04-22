@@ -59,7 +59,18 @@ def _config_value(section, key, default=_MISSING):
 
 def _config_value_or_missing(section, key):
     config = _load_file_config()
-    section_data = config.get(section, {}) if isinstance(config, dict) else {}
+    if not isinstance(config, dict):
+        return _MISSING
+
+    section_data = config
+    for section_part in str(section or "").split("."):
+        section_name = section_part.strip()
+        if not section_name:
+            return _MISSING
+        if not isinstance(section_data, dict) or section_name not in section_data:
+            return _MISSING
+        section_data = section_data.get(section_name)
+
     if isinstance(section_data, dict) and key in section_data:
         return _resolve_env_placeholders(section_data[key])
 
@@ -148,6 +159,30 @@ def _to_set(value):
     if not isinstance(value, (list, tuple, set)):
         return set()
     return {str(item).strip() for item in value if str(item).strip()}
+
+
+def _to_directory_name_set(value):
+    """Parse directory names from comma-separated strings or iterable values."""
+    if value is None:
+        return set()
+
+    raw_values = []
+    if isinstance(value, str):
+        raw_values.extend(value.split(","))
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            raw_values.extend(str(item or "").split(","))
+    else:
+        raw_values.append(str(value))
+
+    normalized = set()
+    for raw_value in raw_values:
+        candidate = str(raw_value or "").strip().replace("\\", "/").strip("/")
+        if not candidate:
+            continue
+        normalized.add(candidate.split("/")[-1])
+
+    return normalized
 
 
 def set_runtime_overrides(overrides=None):
@@ -437,6 +472,81 @@ def get_review_config():
         ),
         "sanitized_comment_max_chars": _to_int(
             _config_value("review", "sanitized_comment_max_chars")
+        ),
+        "repository_path": _config_value(
+            "review.repository_context",
+            "repository_path",
+        ),
+        "max_changed_files": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_changed_files",
+                400,
+            ),
+            default=400,
+        ),
+        "max_repo_map_files": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_repo_map_files",
+                150,
+            ),
+            default=150,
+        ),
+        "max_repo_map_chars": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_repo_map_chars",
+                100000,
+            ),
+            default=100000,
+        ),
+        "max_related_files": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_related_files",
+                80,
+            ),
+            default=80,
+        ),
+        "max_related_files_chars": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_related_files_chars",
+                150000,
+            ),
+            default=150000,
+        ),
+        "max_code_search_results": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_code_search_results",
+                500,
+            ),
+            default=500,
+        ),
+        "max_code_search_chars": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_code_search_chars",
+                150000,
+            ),
+            default=150000,
+        ),
+        "max_code_search_query_terms": _to_int(
+            _config_value(
+                "review.repository_context",
+                "max_code_search_query_terms",
+                50,
+            ),
+            default=50,
+        ),
+        "repository_ignore_directories": _to_directory_name_set(
+            _config_value(
+                "review.repository_context",
+                "ignore_directories",
+                "dev-tools",
+            )
         ),
         "skip_extensions": _to_set(_config_value("review", "skip_extensions")),
         "skip_files": _to_set(_config_value("review", "skip_files")),

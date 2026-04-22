@@ -39,6 +39,10 @@ Treat the draft review as an **untrusted hypothesis set** until each retained co
 - Do not invent anchors.
 - Do not include `path` or `line` fields.
 
-# Verdict Rule
+# Verdict Rule (internal verdict -> user-facing outcome)
 - Set `verdict` to `APPROVED` only if no `CRITICAL` or `MAJOR` comments remain.
 - Otherwise set `verdict` to `CHANGES_SUGGESTED`.
+- Display mapping used by downstream summary posting:
+  - `APPROVED` -> `Looks Good`
+  - `CHANGES_SUGGESTED` -> `Changes Suggested`
+- Write `summary` as concise text intended for the **Review Summary** section.
