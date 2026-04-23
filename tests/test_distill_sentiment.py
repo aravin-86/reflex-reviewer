@@ -30,7 +30,7 @@ class DistillThreadAssociationTests(unittest.TestCase):
     def test_summary_comment_detection_uses_marker_and_summary_sections(self):
         summary_text = (
             "### #TEAM-ONE\n\n"
-            "**Outcome:** `Looks Good`\n\n"
+            "**Recommendation:** `Looks Good`\n\n"
             "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"
@@ -437,9 +437,9 @@ class DistillRejectedPreferencePairTests(unittest.TestCase):
 
 class DistillDpoExtractionTests(unittest.TestCase):
     def test_extract_dpo_pairs_ignores_all_summary_comments(self):
-        summary_comment_legacy = (
+        summary_comment = (
             "### #TEAM-ONE\n\n"
-            "**Outcome:** `Looks Good`\n\n"
+            "**Recommendation:** `Looks Good`\n\n"
             "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"
@@ -447,7 +447,7 @@ class DistillDpoExtractionTests(unittest.TestCase):
         summary_comment_with_marker = (
             "### #TEAM-ONE\n\n"
             "<!-- reflex-reviewer-summary -->\n\n"
-            "**Outcome:** `Changes Suggested`\n\n"
+            "**Recommendation:** `Changes Suggested`\n\n"
             "**Review Summary:** Follow up\n\n"
             "**Checklist**\n"
             "- Item"
@@ -455,9 +455,9 @@ class DistillDpoExtractionTests(unittest.TestCase):
 
         top_threads = [
             {
-                "comment_id": "s-legacy",
-                "comment": {"id": "s-legacy", "text": summary_comment_legacy},
-                "replies": [{"id": "s-legacy-r1", "text": "Thanks"}],
+                "comment_id": "s-recommendation",
+                "comment": {"id": "s-recommendation", "text": summary_comment},
+                "replies": [{"id": "s-recommendation-r1", "text": "Thanks"}],
                 "replies_count": 1,
             },
             {
@@ -471,7 +471,7 @@ class DistillDpoExtractionTests(unittest.TestCase):
         dpo_pairs, metrics = _extract_dpo_pairs_from_threads(
             top_threads,
             sentiment_by_comment_id={
-                "s-legacy": SENTIMENT_ACCEPTED,
+                "s-recommendation": SENTIMENT_ACCEPTED,
                 "s-marker": SENTIMENT_REJECTED,
             },
             prompt_text="prompt",
@@ -489,7 +489,7 @@ class DistillDpoExtractionTests(unittest.TestCase):
         bot_comment_rejected = "Please split this function\n\n### #TEAM-ONE"
         summary_comment = (
             "### #TEAM-ONE\n\n"
-            "**Outcome:** `Looks Good`\n\n"
+            "**Recommendation:** `Looks Good`\n\n"
             "**Review Summary:** Looks good\n\n"
             "**Checklist**\n"
             "- None"

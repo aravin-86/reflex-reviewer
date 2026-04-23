@@ -35,8 +35,7 @@ ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
 SUMMARY_COMMENT_SECTIONS = (
-    ("**Verdict:**", "**Summary:**", "**Checklist**"),
-    ("**Outcome:**", "**Review Summary:**", "**Checklist**"),
+    ("**Recommendation:**", "**Review Summary:**", "**Checklist**"),
 )
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL

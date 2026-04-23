@@ -76,10 +76,12 @@
   - each review run posts a fresh summary comment.
 - Summary comment display wording is now user-friendly and collaborative:
   - heading/body uses `Review Summary` semantics,
-  - outcome label uses `Looks Good` / `Changes Suggested` (mapped from internal verdict values),
-  - summary detection remains backward compatible with both legacy (`Verdict`/`Summary`) and new (`Outcome`/`Review Summary`) formats.
-- Review/distill summary detection now supports an explicit marker `<!-- reflex-reviewer-summary -->` in addition to legacy summary body shape.
-- Distill now consistently excludes all summary comments (legacy + marker-based) from sentiment classification inputs and DPO extraction.
+  - recommendation label uses `Looks Good` / `Changes Suggested` (mapped from internal verdict values).
+- Review/distill summary detection is now canonical and strict:
+  - section-based detection supports only `Recommendation` + `Review Summary` + `Checklist`,
+  - legacy section-based detection for `Outcome`/`Verdict` has been removed,
+  - explicit summary marker `<!-- reflex-reviewer-summary -->` remains supported.
+- Distill now consistently excludes summary comments from sentiment classification inputs and DPO extraction via canonical section shape and marker detection.
 - Add package test extra (`.[test]`) in `pyproject.toml` for explicit local test tooling install.
 - Keep local verification path venv-first (`python3 -m venv .venv` + editable install) to avoid system Python mutation under externally managed environments.
 - Align config unit test expectation with current TOML/runtime default where `model_endpoint` defaults to `chat_completions`.

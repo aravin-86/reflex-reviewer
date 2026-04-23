@@ -194,7 +194,7 @@ Smoke tested in DEV"""
                 "action": "COMMENTED",
                 "comment": {
                     "id": 13,
-                    "text": "### #TEAM-ONE\n\n<!-- reflex-reviewer-summary -->\n\n**Outcome:** `Looks Good`\n\n**Review Summary:** ok\n\n**Checklist**\n- None",
+                    "text": "### #TEAM-ONE\n\n<!-- reflex-reviewer-summary -->\n\n**Recommendation:** `Looks Good`\n\n**Review Summary:** ok\n\n**Checklist**\n- None",
                 },
             },
         ]
@@ -207,7 +207,7 @@ Smoke tested in DEV"""
             context,
         )
         self.assertNotIn("reply should not be included", context)
-        self.assertNotIn("**Outcome:**", context)
+        self.assertNotIn("**Recommendation:**", context)
 
     def test_is_bot_comment_text_supports_hashtag_and_legacy_markers(self):
         self.assertTrue(
@@ -236,7 +236,7 @@ Smoke tested in DEV"""
 
         self.assertIn("### #TEAM-PRODUCT", body)
         self.assertIn("<!-- reflex-reviewer-summary -->", body)
-        self.assertIn("**Outcome:** `Looks Good`", body)
+        self.assertIn("**Recommendation:** `Looks Good`", body)
         self.assertIn("**Review Summary:** ok", body)
 
     def test_upsert_summary_comment_posts_without_deleting_existing_summary(self):
@@ -482,7 +482,7 @@ Smoke tested in DEV"""
         self.assertIn("anchor", inline_call.kwargs)
         self.assertNotIn("anchor", summary_call.kwargs)
         summary_body = summary_call.args[1]
-        self.assertIn("**Outcome:** `Changes Suggested`", summary_body)
+        self.assertIn("**Recommendation:** `Changes Suggested`", summary_body)
         self.assertIn("**Review Summary:** final summary", summary_body)
 
     @patch("reflex_reviewer.review.parse_review_payload")

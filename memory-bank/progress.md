@@ -39,6 +39,22 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Standardized summary label handling to **Recommendation-only** and removed legacy section-format detection:
+  - updated `reflex_reviewer/review.py`:
+    - `SUMMARY_COMMENT_SECTIONS` now supports only `("**Recommendation:**", "**Review Summary:**", "**Checklist**")`,
+    - removed duplicate summary-section tuple,
+    - removed legacy section support for `Outcome`/`Verdict`,
+    - renamed display mapping constant from `VERDICT_TO_OUTCOME` to `VERDICT_TO_RECOMMENDATION`.
+  - updated `reflex_reviewer/distill.py`:
+    - `SUMMARY_COMMENT_SECTIONS` now supports only the `Recommendation` section shape,
+    - removed legacy section support for `Outcome`/`Verdict`.
+  - updated tests:
+    - `tests/test_review_model_api.py` summary fixtures/assertions now use `**Recommendation:**`.
+    - `tests/test_distill_sentiment.py` summary fixtures/assertions now use `**Recommendation:**`.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_distill_sentiment`
+    - Result: `Ran 47 tests ... OK`.
+
 - Fixed noisy repository code-search retrieval during review context construction:
   - Root cause explained/confirmed:
     - the `retrieve_code_search_context` node derives terms from changed-file summaries and then scans repository files; previously Java extraction could leak non-identifier tokens from textual content, and code search walked directories like `dev-tools`, so unrelated matches appeared.

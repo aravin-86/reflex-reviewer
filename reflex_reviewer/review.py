@@ -65,10 +65,9 @@ ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
 DEFAULT_COMMENT_SEVERITY = "ADVISORY"
 SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
 SUMMARY_COMMENT_SECTIONS = (
-    ("**Verdict:**", "**Summary:**", "**Checklist**"),
-    ("**Outcome:**", "**Review Summary:**", "**Checklist**"),
+    ("**Recommendation:**", "**Review Summary:**", "**Checklist**"),
 )
-VERDICT_TO_OUTCOME = {
+VERDICT_TO_RECOMMENDATION = {
     "APPROVED": "Looks Good",
     "LOOKS GOOD": "Looks Good",
     "CHANGES_SUGGESTED": "Changes Suggested",
@@ -763,7 +762,9 @@ def _resolve_anchor_by_id(anchor_id, anchor_index):
 
 def _build_summary_comment_body(verdict, summary, checklist, team_name):
     normalized_verdict = (verdict or "CHANGES_SUGGESTED").strip().upper()
-    outcome_label = VERDICT_TO_OUTCOME.get(normalized_verdict, "Changes Suggested")
+    recommendation_label = VERDICT_TO_RECOMMENDATION.get(
+        normalized_verdict, "Changes Suggested"
+    )
     normalized_summary = (summary or "No issues identified.").strip()
     safe_checklist = checklist if isinstance(checklist, list) else []
     checklist_md = (
@@ -776,7 +777,7 @@ def _build_summary_comment_body(verdict, summary, checklist, team_name):
     body = (
         f"### #{hashtag_team_name}\n\n"
         f"{SUMMARY_COMMENT_MARKER}\n\n"
-        f"**Outcome:** `{outcome_label}`\n\n"
+        f"**Recommendation:** `{recommendation_label}`\n\n"
         f"**Review Summary:** {normalized_summary}\n\n"
         f"**Checklist**\n"
         f"{checklist_md}"
