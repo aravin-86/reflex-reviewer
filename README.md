@@ -50,11 +50,11 @@ Reflex Reviewer has two main parts:
 - a **learning loop** for distillation and refinement.
 
 Key ideas:
-- **Repository-aware context:** the review flow enriches the PR diff with deterministic repository context from a local checkout referenced by `REPOSITORY_PATH`.
-- **Parser-backed extraction:** Java context extraction uses `tree-sitter-java` (JDK 17+ friendly) and Python extraction uses built-in `ast`.
-- **Two-stage review:** `DRAFT_MODEL` proposes findings, and `JUDGE_MODEL` verifies them against available evidence before anything is posted.
-- **Deterministic guardrails:** final output is normalized, unresolved anchors are dropped, severities are constrained to `CRITICAL|MAJOR|ADVISORY`, and test-file comments are always forced to `ADVISORY`.
-- **Explicit runtime separation:** LLM agent stages live in `reflex_reviewer/review_graph_runtime/agents.py`, while orchestration and guardrails live in `reflex_reviewer/review_graph_runtime/nodes.py`.
+- **Context-aware zero-shot review:** structured prompts combine reviewer persona, review guidelines, and chain of thought using LangGraph-orchestrated reasoning to analyze code changes.
+- **Repository-aware context enrichment:** the review flow augments the diff with relevant repository context, not just changed lines.
+- **Multi-agent review pipeline:** a review agent drafts findings, and a judge agent verifies them before posting.
+- **LLM-as-a-Judge verification:** candidate comments are checked for factual correctness against available evidence to reduce hallucinations.
+- **Actionability verification:** feedback is filtered toward comments that are specific, resolvable, and useful in follow-up commits.
 
 ### 2.1 Architecture diagram
 
