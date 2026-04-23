@@ -474,13 +474,14 @@ python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*.wh
 
 ## 9. Future improvements
 
+- **Phase 1:** Add vector-database-backed preference memory from distilled DPO/comment-thread outcomes, persist accepted/rejected/unresolved metadata, and expose backend-ready stats for future dashboard/reporting flows.
+- **Phase 2:** Use that vector preference memory as a review-time knowledge base to retrieve historically accepted/rejected exemplars and inject bounded preference guidance into review prompts while keeping judge-stage evidence validation authoritative.
 - Add **large-PR chunked review orchestration** so Reflex Reviewer can split very large pull requests into multiple draft-model review passes while preserving prior chunk context through explicit structured rolling memory and deterministic finding merge before final judging.
 - Add **GitHub** as the next supported VCS provider.
 - Expand **repository-aware review context** beyond the current Java/Python adapter implementation.
 - Improve **DPO data quality and observability**, including deduplication, lineage tracking, and acceptance metrics.
 - Support model routing by repository or language.
 - Add more VCS client implementations through the VCS factory.
-- Add **retrieval-backed preference memory** from distilled DPO pairs to improve review quality during live review runs.
 
 ## 10. For the Nomenclature Nuts
 
