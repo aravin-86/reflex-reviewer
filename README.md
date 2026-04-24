@@ -183,7 +183,7 @@ Key grouped stages:
 
 ### 2.4 Distill and refine
 
-- **Distill (`reflex_reviewer/distill.py`)** reads PR activities, reconstructs root comment threads, excludes summary comments, classifies thread sentiment as `ACCEPTED`, `REJECTED`, or `UNSURE`, and appends only high-confidence accepted/rejected samples to the DPO dataset.
+- **Distill (`reflex_reviewer/distill.py`)** reads PR activities, reconstructs root comment threads, excludes summary comments, applies deterministic Bitbucket reaction-based sentiment overrides (for example thumbs up/down) when available, falls back to LLM thread sentiment classification as `ACCEPTED`, `REJECTED`, or `UNSURE` for unresolved threads, and appends only high-confidence accepted/rejected samples to the DPO dataset.
 - **Refine (`reflex_reviewer/refine.py`)** validates dataset readiness, splits training and validation data, starts fine-tuning against the configured backend, monitors job completion, and cleans temporary cache artifacts after success.
 
 ### 2.5 DPO in one paragraph

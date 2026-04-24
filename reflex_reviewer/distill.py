@@ -17,6 +17,11 @@ from .llm.response_handler import (
     extract_content_from_stream_response,
     parse_batched_sentiment_response,
 )
+from .distill_reactions import (
+    extract_reaction_sentiments_from_activities,
+    merge_thread_sentiments,
+    split_threads_by_reaction_sentiment,
+)
 from .vcs import get_vcs_client
 
 # --- Configuration ---
@@ -736,6 +741,44 @@ def _resolve_thread_sentiments_with_llm(
         return {}
 
 
+def _resolve_thread_sentiments(
+    comment_threads,
+    activities,
+    draft_model=None,
+    model_endpoint="responses",
+    stream_response=False,
+    team_name="",
+):
+    reaction_sentiment_by_comment_id = extract_reaction_sentiments_from_activities(
+        activities,
+        normalize_comment_id=_normalize_comment_id,
+    )
+    llm_threads, reaction_overrides = split_threads_by_reaction_sentiment(
+        comment_threads,
+        reaction_sentiment_by_comment_id,
+        valid_sentiments=VALID_SENTIMENTS,
+        normalize_comment_id=_normalize_comment_id,
+    )
+    logger.info(
+        "Resolved reaction sentiment overrides. overrides=%s llm_threads=%s total_threads=%s",
+        len(reaction_overrides),
+        len(llm_threads),
+        len(comment_threads or []),
+    )
+
+    llm_sentiment_by_comment_id = _resolve_thread_sentiments_with_llm(
+        llm_threads,
+        draft_model=draft_model,
+        model_endpoint=model_endpoint,
+        stream_response=stream_response,
+        team_name=team_name,
+    )
+    return merge_thread_sentiments(
+        llm_sentiment_by_comment_id,
+        reaction_overrides,
+    )
+
+
 def _normalize_text_for_key(text):
     return re.sub(r"\s+", " ", (text or "").strip())
 
@@ -1053,8 +1096,9 @@ def run(
             MAX_LLM_THREADS,
         )
 
-        sentiment_by_comment_id = _resolve_thread_sentiments_with_llm(
+        sentiment_by_comment_id = _resolve_thread_sentiments(
             top_threads,
+            activity_values,
             draft_model=run_draft_model,
             model_endpoint=run_model_endpoint,
             stream_response=run_stream_response,

@@ -17,6 +17,7 @@ from reflex_reviewer.distill import (
     _is_summary_comment_text,
     _parse_batched_sentiment_response,
     _parent_comment_id,
+    _resolve_thread_sentiments,
     _select_top_comment_threads,
 )
 
@@ -311,6 +312,58 @@ class DistillTopThreadsAndBatchedSentimentTests(unittest.TestCase):
 
         self.assertEqual(result.get("1"), SENTIMENT_ACCEPTED)
         mock_responses.assert_called_once()
+
+
+class DistillReactionOverrideIntegrationTests(unittest.TestCase):
+    @patch("reflex_reviewer.distill._resolve_thread_sentiments_with_llm")
+    def test_resolve_thread_sentiments_uses_reactions_with_llm_fallback(
+        self, mock_resolve_llm
+    ):
+        comment_threads = [
+            {"comment_id": "1", "comment": {"id": "1", "text": "comment-1"}},
+            {"comment_id": "2", "comment": {"id": "2", "text": "comment-2"}},
+        ]
+        activities = [
+            {"action": "THUMBS_UP", "comment": {"id": "1"}},
+            {"action": "COMMENTED", "comment": {"id": "2", "text": "root"}},
+        ]
+        mock_resolve_llm.return_value = {"2": SENTIMENT_REJECTED}
+
+        resolved = _resolve_thread_sentiments(
+            comment_threads,
+            activities,
+            model_endpoint="responses",
+        )
+
+        self.assertEqual(
+            resolved,
+            {
+                "1": SENTIMENT_ACCEPTED,
+                "2": SENTIMENT_REJECTED,
+            },
+        )
+        llm_threads = mock_resolve_llm.call_args.args[0]
+        self.assertEqual(len(llm_threads), 1)
+        self.assertEqual(llm_threads[0]["comment_id"], "2")
+
+    @patch("reflex_reviewer.distill._resolve_thread_sentiments_with_llm")
+    def test_resolve_thread_sentiments_skips_llm_work_for_reaction_resolved_threads(
+        self, mock_resolve_llm
+    ):
+        comment_threads = [
+            {"comment_id": "1", "comment": {"id": "1", "text": "comment-1"}}
+        ]
+        activities = [{"action": "THUMBS_DOWN", "comment": {"id": "1"}}]
+        mock_resolve_llm.return_value = {}
+
+        resolved = _resolve_thread_sentiments(
+            comment_threads,
+            activities,
+            model_endpoint="responses",
+        )
+
+        self.assertEqual(resolved, {"1": SENTIMENT_REJECTED})
+        self.assertEqual(mock_resolve_llm.call_args.args[0], [])
 
 
 class DistillCommentReplyTableFormattingTests(unittest.TestCase):

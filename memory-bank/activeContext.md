@@ -82,6 +82,14 @@
   - legacy section-based detection for `Outcome`/`Verdict` has been removed,
   - explicit summary marker `<!-- reflex-reviewer-summary -->` remains supported.
 - Distill now consistently excludes summary comments from sentiment classification inputs and DPO extraction via canonical section shape and marker detection.
+- Distill sentiment resolution now supports deterministic Bitbucket reaction-aware overrides before LLM fallback:
+  - added helper module `reflex_reviewer/distill_reactions.py` to extract and normalize thumbs-up/down style reaction signals from varying activity payload shapes,
+  - reaction-resolved comment threads are excluded from LLM sentiment calls,
+  - unresolved threads continue to use existing batched LLM sentiment classification,
+  - final thread sentiment is merged with reaction overrides taking precedence.
+- Added reaction-focused distill test coverage:
+  - new helper tests in `tests/test_distill_reactions.py` for extraction/splitting/merge precedence,
+  - integration-style tests in `tests/test_distill_sentiment.py` for `_resolve_thread_sentiments(...)` reaction + LLM fallback flow.
 - Add package test extra (`.[test]`) in `pyproject.toml` for explicit local test tooling install.
 - Keep local verification path venv-first (`python3 -m venv .venv` + editable install) to avoid system Python mutation under externally managed environments.
 - Align config unit test expectation with current TOML/runtime default where `model_endpoint` defaults to `chat_completions`.

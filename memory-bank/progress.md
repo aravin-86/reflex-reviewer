@@ -39,6 +39,20 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Added Bitbucket reaction-aware sentiment handling in distill with helper-module separation:
+  - added `reflex_reviewer/distill_reactions.py` to centralize reaction parsing/normalization and sentiment merge helpers,
+  - implemented deterministic thumbs-up/down style reaction sentiment extraction from Bitbucket activity payloads (defensive across likely field shapes),
+  - updated `reflex_reviewer/distill.py` to resolve reaction-based sentiment first and only call batched LLM sentiment for unresolved threads,
+  - merged final thread sentiment with reaction overrides taking precedence over LLM output.
+- Added/updated tests for reaction behavior:
+  - new `tests/test_distill_reactions.py` covers reaction extraction, split routing, and merge precedence,
+  - updated `tests/test_distill_sentiment.py` with `_resolve_thread_sentiments(...)` integration-style tests for reaction + LLM fallback flow.
+- Updated docs:
+  - `README.md` distill architecture section now documents deterministic Bitbucket reaction overrides with LLM fallback.
+- Verification notes:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_distill_reactions tests.test_distill_sentiment`
+  - Result: `Ran 31 tests ... OK`.
+
 - Standardized summary label handling to **Recommendation-only** and removed legacy section-format detection:
   - updated `reflex_reviewer/review.py`:
     - `SUMMARY_COMMENT_SECTIONS` now supports only `("**Recommendation:**", "**Review Summary:**", "**Checklist**")`,
