@@ -120,12 +120,16 @@ The PR review flow is orchestrated by `reflex_reviewer/review.py` through `refle
 High-level stages:
 - **Context gathering:** fetch PR metadata, diff, activities, and changed files.
 - **Repository enrichment:** build a repository map, related-file context, and bounded code-search context from `REPOSITORY_PATH`.
+  - **Repository map:** a compact structural summary of the changed files themselves (for example package/import/type/function-level information).
+  - **Related-file context:** deterministic snippets from nearby files inferred from imports or module relationships.
+  - **Bounded code-search context:** repository-wide line matches for deterministic terms derived from changed files, useful for spotting precedent, duplication, and missed follow-up updates.
 - **Inference:** prepare prompt inputs, run `draft_reviewer`, normalize findings, and run `evidence_judge`.
 - **Publishing:** build the summary, resolve anchors, apply posting policy, and publish the review.
 
 Review behavior worth knowing:
 - Existing root comment context from humans and bots is used to reduce repetitive suggestions.
 - The same repository context bundle is injected into both the draft and judge prompt paths.
+- Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
 - Every review run posts a fresh summary comment and may also publish inline comments.
 
 ### 2.3 Review graph diagram
