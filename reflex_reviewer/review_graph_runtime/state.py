@@ -25,6 +25,7 @@ class ReviewGraphState(TypedDict, total=False):
     pr_description: str
     review_purpose: str
     existing_feedback: str
+    existing_bot_inline_comments: List[Dict[str, Any]]
 
     changed_file_paths: List[str]
     repo_map: str

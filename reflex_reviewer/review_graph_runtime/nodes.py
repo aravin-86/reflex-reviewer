@@ -11,6 +11,58 @@ logger = logging.getLogger(__name__)
 
 
 class ReviewGraphNodes:
+    DEFAULT_COMMENT_SEVERITY = "ADVISORY"
+    ALLOWED_COMMENT_SEVERITIES = {"CRITICAL", "MAJOR", "ADVISORY"}
+    SUMMARY_COMMENT_MARKER = "<!-- reflex-reviewer-summary -->"
+    SUMMARY_COMMENT_SECTIONS = (
+        ("**Recommendation:**", "**Review Summary:**", "**Checklist**"),
+    )
+    SEVERITY_PREFIX_PATTERN = re.compile(
+        r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
+    )
+    BOT_SIGNATURE_PATTERN = re.compile(
+        r"(?:\r?\n){2}\s*###\s*#?[A-Za-z0-9._-]+\s*$",
+        re.DOTALL,
+    )
+    COMMENT_TOKEN_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+        "should",
+        "can",
+        "could",
+        "would",
+        "please",
+        "consider",
+        "change",
+        "changes",
+        "update",
+        "use",
+        "value",
+    }
+    MIN_DUPLICATE_TOKEN_INTERSECTION = 2
+    MIN_DUPLICATE_TOKEN_OVERLAP = 0.75
+
     def __init__(
         self,
         *,
@@ -158,6 +210,233 @@ class ReviewGraphNodes:
             safe_chars = 0
         return (safe_chars + 3) // 4
 
+    @staticmethod
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_repo_path(file_path):
+        normalized = str(file_path or "").strip().replace("\\", "/")
+        normalized = re.sub(r"^(?:\./)+", "", normalized)
+        normalized = re.sub(r"^(?:a|b)/", "", normalized)
+        normalized = normalized.lstrip("/")
+        return normalized.lower()
+
+    @classmethod
+    def _is_root_comment(cls, comment):
+        if not isinstance(comment, dict):
+            return False
+
+        parent = comment.get("parent")
+        if not parent:
+            return True
+
+        if not isinstance(parent, dict):
+            return True
+
+        parent_id = parent.get("id")
+        if parent_id is None:
+            return True
+
+        return not str(parent_id).strip()
+
+    @classmethod
+    def _is_bot_comment_text(cls, text, team_name):
+        if not text:
+            return False
+
+        normalized_team_name = str(team_name or "").strip()
+        if not normalized_team_name:
+            return False
+
+        hashtag_team_name = normalized_team_name.lstrip("#")
+        markers = {f"### {normalized_team_name}"}
+        if hashtag_team_name:
+            markers.add(f"### #{hashtag_team_name}")
+
+        return any(marker in str(text) for marker in markers)
+
+    @classmethod
+    def _is_summary_comment_text(cls, text, team_name):
+        text_value = str(text or "")
+        if cls.SUMMARY_COMMENT_MARKER in text_value:
+            return True
+
+        if not cls._is_bot_comment_text(text_value, team_name):
+            return False
+
+        return any(
+            all(section in text_value for section in summary_section)
+            for summary_section in cls.SUMMARY_COMMENT_SECTIONS
+        )
+
+    @classmethod
+    def _strip_bot_signature(cls, text):
+        return cls.BOT_SIGNATURE_PATTERN.sub("", str(text or "").strip()).strip()
+
+    @classmethod
+    def _parse_inline_comment_payload(cls, text):
+        inline_body = cls._strip_bot_signature(text)
+        if not inline_body:
+            return cls.DEFAULT_COMMENT_SEVERITY, ""
+
+        match = cls.SEVERITY_PREFIX_PATTERN.match(inline_body)
+        if not match:
+            return cls.DEFAULT_COMMENT_SEVERITY, inline_body
+
+        severity = str(match.group("severity") or "").strip().upper()
+        if severity not in cls.ALLOWED_COMMENT_SEVERITIES:
+            severity = cls.DEFAULT_COMMENT_SEVERITY
+        body = str(match.group("body") or "").strip()
+        return severity, body
+
+    @staticmethod
+    def _resolve_existing_inline_anchor_location(comment):
+        if not isinstance(comment, dict):
+            return None, None
+
+        anchor = comment.get("anchor")
+        if not isinstance(anchor, dict):
+            return None, None
+
+        anchor_path = None
+        for path_key in ("path", "srcPath", "filePath"):
+            raw_path = anchor.get(path_key)
+            if isinstance(raw_path, dict):
+                raw_path = raw_path.get("toString")
+            if isinstance(raw_path, str) and raw_path.strip():
+                anchor_path = raw_path.strip()
+                break
+
+        anchor_line = None
+        for line_key in ("line", "srcLine", "lineNumber"):
+            raw_line = anchor.get(line_key)
+            if raw_line is None:
+                continue
+            try:
+                parsed_line = int(str(raw_line).strip())
+            except (TypeError, ValueError):
+                continue
+            if parsed_line > 0:
+                anchor_line = parsed_line
+                break
+
+        return anchor_path, anchor_line
+
+    @classmethod
+    def _normalize_comment_text_for_fingerprint(cls, text):
+        normalized = cls._strip_bot_signature(text).lower()
+        normalized = normalized.replace("->", " ").replace("=>", " ")
+        normalized = (
+            normalized.replace("::", " ")
+            .replace("/", " ")
+            .replace("\\", " ")
+            .replace("_", " ")
+            .replace("-", " ")
+        )
+        normalized = re.sub(r"`{1,3}", " ", normalized)
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    @classmethod
+    def _token_set_for_similarity(cls, text):
+        normalized_text = cls._normalize_comment_text_for_fingerprint(text)
+        if not normalized_text:
+            return set()
+        return {
+            token
+            for token in normalized_text.split()
+            if len(token) >= 3 and token not in cls.COMMENT_TOKEN_STOPWORDS
+        }
+
+    @classmethod
+    def _comments_are_near_duplicates(cls, left_text, right_text):
+        left_normalized = cls._normalize_comment_text_for_fingerprint(left_text)
+        right_normalized = cls._normalize_comment_text_for_fingerprint(right_text)
+        if not left_normalized or not right_normalized:
+            return False
+        if left_normalized == right_normalized:
+            return True
+
+        left_tokens = cls._token_set_for_similarity(left_normalized)
+        right_tokens = cls._token_set_for_similarity(right_normalized)
+        if not left_tokens or not right_tokens:
+            return False
+
+        intersection_count = len(left_tokens & right_tokens)
+        if intersection_count < cls.MIN_DUPLICATE_TOKEN_INTERSECTION:
+            return False
+
+        min_token_count = min(len(left_tokens), len(right_tokens))
+        if min_token_count <= 0:
+            return False
+
+        overlap_ratio = intersection_count / float(min_token_count)
+        return overlap_ratio >= cls.MIN_DUPLICATE_TOKEN_OVERLAP
+
+    def _extract_existing_bot_inline_comments(self, activities, team_name):
+        extracted_comments = []
+        seen = set()
+
+        for activity in activities or []:
+            if not isinstance(activity, dict):
+                continue
+            if activity.get("action") != "COMMENTED":
+                continue
+
+            comment = activity.get("comment")
+            if not isinstance(comment, dict):
+                continue
+            if not self._is_root_comment(comment):
+                continue
+
+            raw_text = str(comment.get("text") or "")
+            if not raw_text.strip():
+                continue
+            if self._is_summary_comment_text(raw_text, team_name):
+                continue
+            if not self._is_bot_comment_text(raw_text, team_name):
+                continue
+
+            anchor_path, anchor_line = self._resolve_existing_inline_anchor_location(comment)
+            normalized_path = self._normalize_repo_path(anchor_path)
+            normalized_line = self._safe_int(anchor_line, default=0)
+            if not normalized_path or normalized_line <= 0:
+                continue
+
+            severity, inline_body = self._parse_inline_comment_payload(raw_text)
+            normalized_text = self._strip_bot_signature(inline_body or raw_text)
+            if not normalized_text:
+                continue
+
+            fingerprint_tokens = sorted(self._token_set_for_similarity(normalized_text))
+            fingerprint = " ".join(fingerprint_tokens) or self._normalize_comment_text_for_fingerprint(
+                normalized_text
+            )
+            if not fingerprint:
+                continue
+
+            dedupe_key = (normalized_path, normalized_line, fingerprint)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            extracted_comments.append(
+                {
+                    "path": anchor_path,
+                    "line": normalized_line,
+                    "severity": severity,
+                    "text": normalized_text,
+                    "fingerprint": fingerprint,
+                }
+            )
+
+        return extracted_comments
+
     def _log_node_start(self, node_name, state: ReviewGraphState):
         """Write a minimal start log for the given review-graph node."""
         logger.info(
@@ -251,6 +530,10 @@ class ReviewGraphNodes:
         existing_feedback = self._build_existing_feedback_context(
             activities, run_team_name
         )
+        existing_bot_inline_comments = self._extract_existing_bot_inline_comments(
+            activities,
+            run_team_name,
+        )
         review_purpose = self._build_review_purpose(pr_title, pr_description)
         state_key = self._build_previous_response_id(vcs_config or {}, pr_id)
 
@@ -271,6 +554,7 @@ class ReviewGraphNodes:
             "pr_title": pr_title,
             "pr_description": pr_description,
             "existing_feedback": existing_feedback,
+            "existing_bot_inline_comments": existing_bot_inline_comments,
             "review_purpose": review_purpose,
             "state_key": state_key,
         }
@@ -280,6 +564,7 @@ class ReviewGraphNodes:
             halted=False,
             safe_diff_chars=len(safe_diff),
             anchor_count=len(anchor_index.get("by_anchor_id", {})),
+            existing_bot_inline_comments=len(existing_bot_inline_comments),
         )
         return result
 
@@ -681,17 +966,57 @@ class ReviewGraphNodes:
         return result
 
     def policy_guard(self, state: ReviewGraphState) -> ReviewGraphState:
-        """Apply final severity policy adjustments to resolved inline comments."""
+        """Apply final severity policy and same-anchor near-duplicate suppression."""
         node_name = "policy_guard"
         if self._is_halted(node_name, state):
             return cast(ReviewGraphState, {})
 
         self._log_node_start(node_name, state)
 
+        existing_comments_by_anchor = {}
+        for existing_comment in state.get("existing_bot_inline_comments", []):
+            if not isinstance(existing_comment, dict):
+                continue
+
+            normalized_path = self._normalize_repo_path(existing_comment.get("path"))
+            normalized_line = self._safe_int(existing_comment.get("line"), default=0)
+            if not normalized_path or normalized_line <= 0:
+                continue
+
+            existing_text = str(existing_comment.get("text") or "").strip()
+            if not existing_text:
+                continue
+
+            anchor_key = (normalized_path, normalized_line)
+            existing_comments_by_anchor.setdefault(anchor_key, []).append(existing_text)
+
         guarded_comments = []
+        accepted_comments_by_anchor = {}
+        duplicate_suppressed_count = 0
         for comment in state.get("resolved_comments", []):
             if not isinstance(comment, dict):
                 continue
+
+            comment_path = self._normalize_repo_path(comment.get("path"))
+            comment_line = self._safe_int(comment.get("line"), default=0)
+            comment_text = str(comment.get("text") or "").strip()
+
+            anchor_key = None
+            if comment_path and comment_line > 0 and comment_text:
+                anchor_key = (comment_path, comment_line)
+
+            if anchor_key:
+                existing_anchor_texts = existing_comments_by_anchor.get(anchor_key, [])
+                accepted_anchor_texts = accepted_comments_by_anchor.get(anchor_key, [])
+                if any(
+                    self._comments_are_near_duplicates(comment_text, existing_text)
+                    for existing_text in existing_anchor_texts
+                ) or any(
+                    self._comments_are_near_duplicates(comment_text, accepted_text)
+                    for accepted_text in accepted_anchor_texts
+                ):
+                    duplicate_suppressed_count += 1
+                    continue
 
             guarded_comments.append(
                 {
@@ -701,13 +1026,23 @@ class ReviewGraphNodes:
                     ),
                 }
             )
+            if anchor_key:
+                accepted_comments_by_anchor.setdefault(anchor_key, []).append(comment_text)
 
-        result: ReviewGraphState = {"resolved_comments": guarded_comments}
+        skipped_inline_count = self._safe_int(state.get("skipped_inline_count"), default=0)
+        skipped_inline_count += duplicate_suppressed_count
+
+        result: ReviewGraphState = {
+            "resolved_comments": guarded_comments,
+            "skipped_inline_count": skipped_inline_count,
+        }
         self._log_node_complete(
             node_name,
             state,
             input_comments=len(state.get("resolved_comments", [])),
             guarded_comments=len(guarded_comments),
+            duplicate_suppressed=duplicate_suppressed_count,
+            skipped_inline_count=skipped_inline_count,
         )
         return result
 

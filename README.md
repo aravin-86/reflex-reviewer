@@ -128,6 +128,9 @@ High-level stages:
 
 Review behavior worth knowing:
 - Existing root comment context from humans and bots is used to reduce repetitive suggestions.
+- Same-anchor duplicate suppression is enforced in two layers:
+  - judge instructions explicitly remove semantically equivalent already-covered bot comments on the same file/line,
+  - `policy_guard` applies deterministic same-anchor near-duplicate filtering before publishing.
 - The same repository context bundle is injected into both the draft and judge prompt paths.
 - Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
 - Every review run posts a fresh summary comment and may also publish inline comments.
@@ -227,7 +230,7 @@ Important settings in `reflex_reviewer.toml`:
   - `read_timeout_seconds`
 - `[review.repository_context]`
   - `repository_path`
-  - `ignore_directories` (env-backed via `REPOSITORY_IGNORE_DIRECTORIES`, default: `dev-tools`)
+  - `ignore_directories` (env-backed via `REPOSITORY_IGNORE_DIRECTORIES`; values are added to built-in default ignore directories)
   - `max_changed_files` (default: `400`)
   - `max_repo_map_files` (default: `150`)
   - `max_repo_map_chars` (default: `100000`)
@@ -242,7 +245,7 @@ Important behavior notes:
 - `LLM_API_KEY` enables direct API-key auth; otherwise runtime falls back to OAuth2 token auth.
 - `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML socket read timeout.
 - `REPOSITORY_PATH` points repository-aware review at a local checkout; if unset or invalid, review safely continues with PR context only.
-- `REPOSITORY_IGNORE_DIRECTORIES` adds comma-separated directory names to exclude during repository code-search scanning (default includes `dev-tools` via TOML).
+- `REPOSITORY_IGNORE_DIRECTORIES` adds comma-separated directory names to exclude during repository code-search scanning, in addition to built-in default ignore directories.
 
 To enable repository-aware review context in practice, export `REPOSITORY_PATH` to the checked-out repository you want Reflex Reviewer to inspect. Example:
 

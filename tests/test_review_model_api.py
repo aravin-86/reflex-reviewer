@@ -357,7 +357,7 @@ Smoke tested in DEV"""
     @patch("reflex_reviewer.review.get_review_model_completion")
     @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
     @patch("reflex_reviewer.review.get_vcs_client")
-    def test_run_posts_inline_and_summary_without_code_side_existing_comment_dedupe(
+    def test_run_policy_guard_suppresses_same_anchor_near_duplicate_and_posts_summary(
         self,
         mock_get_vcs_client,
         mock_convert_diff,
@@ -476,10 +476,8 @@ Smoke tested in DEV"""
         self.assertNotIn("{{RELATED_FILES_CONTEXT}}", judge_user_prompt)
         self.assertNotIn("{{CODE_SEARCH_CONTEXT}}", judge_user_prompt)
 
-        self.assertEqual(vcs_client.post_comment.call_count, 2)
-        inline_call = vcs_client.post_comment.call_args_list[0]
-        summary_call = vcs_client.post_comment.call_args_list[1]
-        self.assertIn("anchor", inline_call.kwargs)
+        self.assertEqual(vcs_client.post_comment.call_count, 1)
+        summary_call = vcs_client.post_comment.call_args_list[0]
         self.assertNotIn("anchor", summary_call.kwargs)
         summary_body = summary_call.args[1]
         self.assertIn("**Recommendation:** `Changes Suggested`", summary_body)

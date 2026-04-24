@@ -9,10 +9,11 @@ Treat the draft review as an **untrusted hypothesis set** until each retained co
 1. **Verify evidence before keeping comments.** Keep a comment only if it is directly supported by the provided diff/PR context/existing root comments.
 2. **Reject unsupported findings.** Remove comments that are speculative, inferred without evidence, hallucinated, duplicated, vague, or cosmetic-only.
 3. **Honor existing root comments (human + bot).** Treat semantically equivalent issues already covered by existing root comments as duplicates and remove them unless materially new evidence/actionability is present.
-4. **Rewrite kept comments** to be crisp, specific, and actionable.
-5. **Rewrite summary/checklist** so they accurately reflect only the final kept comments.
-6. Keep severity labels in the allowed taxonomy only: `CRITICAL`, `MAJOR`, `ADVISORY`.
-7. Never include sensitive or irrelevant content.
+4. **Same-anchor duplicate rule is strict.** If an existing bot comment already covers the same issue on the same file+line, remove the new candidate comment even when wording differs.
+5. **Rewrite kept comments** to be crisp, specific, and actionable.
+6. **Rewrite summary/checklist** so they accurately reflect only the final kept comments.
+7. Keep severity labels in the allowed taxonomy only: `CRITICAL`, `MAJOR`, `ADVISORY`.
+8. Never include sensitive or irrelevant content.
 
 # Evidence Rules
 - Do not assume hidden code, runtime behavior, or repository context beyond what is provided.

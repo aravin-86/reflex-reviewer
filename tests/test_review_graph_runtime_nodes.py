@@ -1,5 +1,5 @@
 import unittest
-from typing import cast
+from typing import Any, cast
 
 from reflex_reviewer.review_graph_runtime.nodes import ReviewGraphNodes
 from reflex_reviewer.review_graph_runtime.state import ReviewGraphState
@@ -41,8 +41,8 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
             build_existing_feedback_context=_noop,
             build_review_purpose=_noop,
             build_previous_response_id=_noop,
-            normalize_comment_severity=_noop,
-            resolve_comment_severity=_noop,
+            normalize_comment_severity=lambda severity: severity,
+            resolve_comment_severity=lambda severity, _path: severity,
             resolve_anchor_by_id=_noop,
             post_inline_comment=_noop,
             upsert_summary_comment=_noop,
@@ -91,6 +91,130 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
                 for message in logs.output
             )
         )
+
+    def test_policy_guard_suppresses_same_anchor_near_duplicates_against_existing_comments(
+        self,
+    ):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "resolved_comments": [
+                    {
+                        "anchor": {"path": "src/config.py", "line": 88},
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo: COMPOSITEDATUGHSHARDSPACES should be COMPOSITEDATAGUARDSHARDSPACES.",
+                    },
+                    {
+                        "anchor": {"path": "src/config.py", "line": 89},
+                        "path": "src/config.py",
+                        "line": 89,
+                        "severity": "ADVISORY",
+                        "text": "Validate null handling for realm fallback.",
+                    },
+                ],
+                "existing_bot_inline_comments": [
+                    {
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                    }
+                ],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        guarded_comments = cast(list[dict[str, Any]], result.get("resolved_comments") or [])
+        self.assertEqual(len(guarded_comments), 1)
+        self.assertEqual(guarded_comments[0].get("line"), 89)
+        self.assertEqual(result.get("skipped_inline_count"), 1)
+
+    def test_policy_guard_keeps_similar_text_when_anchor_differs(self):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "resolved_comments": [
+                    {
+                        "anchor": {"path": "src/config.py", "line": 120},
+                        "path": "src/config.py",
+                        "line": 120,
+                        "severity": "ADVISORY",
+                        "text": "CompositeDataGuardShardSpaces(\"COMPOSITEDATUGHSHARDSPACES\") typo: change to COMPOSITEDATAGUARDSHARDSPACES.",
+                    }
+                ],
+                "existing_bot_inline_comments": [
+                    {
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                    }
+                ],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        guarded_comments = cast(list[dict[str, Any]], result.get("resolved_comments") or [])
+        self.assertEqual(len(guarded_comments), 1)
+        self.assertEqual(guarded_comments[0].get("line"), 120)
+        self.assertEqual(result.get("skipped_inline_count"), 0)
+
+    def test_policy_guard_suppresses_near_duplicates_within_current_batch_same_anchor(
+        self,
+    ):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "resolved_comments": [
+                    {
+                        "anchor": {"path": "src/config.py", "line": 88},
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                    },
+                    {
+                        "anchor": {"path": "src/config.py", "line": 88},
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo: COMPOSITEDATUGHSHARDSPACES should be COMPOSITEDATAGUARDSHARDSPACES.",
+                    },
+                ],
+                "existing_bot_inline_comments": [],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        guarded_comments = cast(list[dict[str, Any]], result.get("resolved_comments") or [])
+        self.assertEqual(len(guarded_comments), 1)
+        self.assertEqual(result.get("skipped_inline_count"), 1)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,35 @@ _RUNTIME_OVERRIDES = {}
 _FILE_CONFIG = None
 _ROOT_DIR = Path(__file__).resolve().parent.parent
 _CONFIG_FILE_PATH = _ROOT_DIR / "reflex_reviewer.toml"
+_DEFAULT_REPOSITORY_IGNORE_DIRECTORIES = {
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    ".nox",
+    ".ruff_cache",
+    ".hypothesis",
+    ".pyre",
+    "build",
+    "dist",
+    ".eggs",
+    "target",
+    "bin",
+    ".gradle",
+    "out",
+    "classes",
+    ".idea",
+    "logs",
+    "htmlcov",
+    ".coverage",
+    ".cache",
+    ".tmp",
+    "tmp",
+    "temp",
+}
 
 
 load_dotenv(_ROOT_DIR / ".env")
@@ -458,6 +487,13 @@ def get_model_config(overrides=None):
 
 
 def get_review_config():
+    configured_repository_ignore_directories = _to_directory_name_set(
+        _config_value(
+            "review.repository_context",
+            "ignore_directories",
+        )
+    )
+
     return {
         "response_state_file": _config_value("review", "response_state_file"),
         "response_state_ttl_days": _to_int(
@@ -541,13 +577,8 @@ def get_review_config():
             ),
             default=50,
         ),
-        "repository_ignore_directories": _to_directory_name_set(
-            _config_value(
-                "review.repository_context",
-                "ignore_directories",
-                "dev-tools",
-            )
-        ),
+        "repository_ignore_directories": set(_DEFAULT_REPOSITORY_IGNORE_DIRECTORIES)
+        | configured_repository_ignore_directories,
         "skip_extensions": _to_set(_config_value("review", "skip_extensions")),
         "skip_files": _to_set(_config_value("review", "skip_files")),
     }

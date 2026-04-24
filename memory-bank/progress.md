@@ -39,6 +39,46 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Updated repository-context ignore-directory defaults to be additive and broader by default:
+  - updated `reflex_reviewer/config.py`:
+    - added centralized built-in default ignore-directory baseline for common Python/Java/cache/build/log/temp artifacts,
+    - removed `dev-tools` from built-in defaults,
+    - `get_review_config()` now returns built-in defaults union configured `REPOSITORY_IGNORE_DIRECTORIES` values.
+  - updated tests:
+    - `tests/test_config_runtime_overrides.py`
+    - default expectation now matches expanded baseline,
+    - env override test now verifies additive merge behavior.
+  - updated docs/examples:
+    - `README.md` now states `REPOSITORY_IGNORE_DIRECTORIES` is additive to built-in defaults (without listing `dev-tools` as default),
+    - `.env.example` now leaves `REPOSITORY_IGNORE_DIRECTORIES` unset by default.
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_config_runtime_overrides`
+    - Result: `Ran 22 tests ... OK`.
+
+- Added same-anchor semantic duplicate suppression in review flow to stop reposting already-covered inline comments:
+  - updated judge prompts:
+    - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+    - now explicitly require dropping semantically equivalent bot findings already present on the same file+line.
+  - updated `reflex_reviewer/review_graph_runtime/nodes.py` policy-guard behavior:
+    - extracts existing bot inline comments from PR activities (root-only, summary excluded),
+    - normalizes inline comment text and applies deterministic same-anchor near-duplicate filtering,
+    - suppresses near-duplicates against existing bot comments and within the same generated batch,
+    - increments `skipped_inline_count` for suppressed duplicates.
+  - updated typed review graph state:
+    - `reflex_reviewer/review_graph_runtime/state.py` now includes `existing_bot_inline_comments`.
+  - updated tests:
+    - `tests/test_review_graph_runtime_nodes.py` adds coverage for:
+      - same-anchor near-duplicate suppression against existing comments,
+      - same-text/similar-text allowed on different anchors,
+      - duplicate suppression within same-run payload.
+    - `tests/test_review_model_api.py` updated run-path expectation to assert summary-only posting when policy guard suppresses same-anchor duplicate.
+  - updated docs:
+    - `README.md` review-flow behavior now documents two-layer same-anchor duplicate protection (judge semantic rule + deterministic policy-guard enforcement).
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_nodes tests.test_review_model_api`
+    - Result: `Ran 27 tests ... OK`.
+
 - Added Bitbucket reaction-aware sentiment handling in distill with helper-module separation:
   - added `reflex_reviewer/distill_reactions.py` to centralize reaction parsing/normalization and sentiment merge helpers,
   - implemented deterministic thumbs-up/down style reaction sentiment extraction from Bitbucket activity payloads (defensive across likely field shapes),

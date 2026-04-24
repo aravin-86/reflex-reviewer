@@ -37,7 +37,7 @@
 
 ## Decisions captured in this update
 - Java tree-sitter parser bootstrap now uses runtime-compatible dynamic assignment (`getattr`/`setattr`) for parser language wiring so both API variants remain supported while avoiding static-type attribute errors in editor diagnostics.
-- Repository context code-search now supports configurable ignored directories (`review.repository_context.ignore_directories`, env-backed by `REPOSITORY_IGNORE_DIRECTORIES`) and defaults to ignoring `dev-tools`.
+- Repository context code-search supports configurable ignored directories (`review.repository_context.ignore_directories`, env-backed by `REPOSITORY_IGNORE_DIRECTORIES`) with additive built-in default ignore directories for common Python/Java/cache/build/log/temp artifacts.
 - Java repository-context extraction now uses parser-backed `tree-sitter-java` extraction for package/import/type/method discovery, avoiding token leakage from string literals/comments (e.g., terms like `cannot`).
 - Review graph runtime now passes configured ignore directories into `retrieve_code_search_context`, so ignored folders are excluded from deterministic bounded code-search scans.
 - Prompt/context tests were updated to accept both repository-unavailable and no-match/noise-minimized repository-context outcomes.
@@ -69,6 +69,13 @@
 - Review flow now builds prompt context from **root comments only** (both human and bot), excludes replies, and excludes summary comments.
 - Existing root bot comments in prompt context now include parsed severity and anchor metadata (`file`, `line`) when available.
 - Review posting path was simplified: no code-side rerun dedupe against existing inline comments; duplicate avoidance is guided by model/judge prompt instructions using existing root comment context.
+- Judge prompts now explicitly require strict same-anchor semantic duplicate removal:
+  - if an existing bot comment on the same file+line already covers the issue, the judge must drop rephrased duplicates.
+- Review graph policy guard now enforces deterministic same-anchor near-duplicate suppression before publish:
+  - existing bot inline comments are extracted from PR activities (root comments only, summary excluded),
+  - normalized near-duplicate matching applies to all inline comments on the same normalized path+line,
+  - duplicate suppression also applies within the same run payload when two generated comments are near-duplicates on the same anchor,
+  - suppressed findings increment `skipped_inline_count` and are not posted.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
 - Review summary handling is now append-only:

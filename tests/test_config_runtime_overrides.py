@@ -20,6 +20,36 @@ from reflex_reviewer.config import (
 
 
 class ConfigRuntimeOverridesTests(unittest.TestCase):
+    DEFAULT_REPOSITORY_IGNORE_DIRECTORIES = {
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".tox",
+        ".nox",
+        ".ruff_cache",
+        ".hypothesis",
+        ".pyre",
+        "build",
+        "dist",
+        ".eggs",
+        "target",
+        "bin",
+        ".gradle",
+        "out",
+        "classes",
+        ".idea",
+        "logs",
+        "htmlcov",
+        ".coverage",
+        ".cache",
+        ".tmp",
+        "tmp",
+        "temp",
+    }
+
     def tearDown(self):
         clear_runtime_overrides()
 
@@ -160,7 +190,7 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         self.assertEqual(review_config.get("max_code_search_query_terms"), 50)
         self.assertEqual(
             review_config.get("repository_ignore_directories"),
-            {"dev-tools"},
+            self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES,
         )
 
     def test_review_repository_context_resolves_repository_path_from_env(self):
@@ -183,7 +213,8 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
 
         self.assertEqual(
             review_config.get("repository_ignore_directories"),
-            {"dev-tools", ".cache", "nested"},
+            self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES
+            | {"dev-tools", ".cache", "nested"},
         )
 
     def test_oauth2_config_uses_fallback_env_vars(self):

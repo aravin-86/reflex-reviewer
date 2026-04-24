@@ -16,6 +16,7 @@ Your task is to produce the final judge-approved review JSON.
 ## Existing Root Comments (Human + Bot, semantic no-repeat)
 Treat these root-level comments as already-covered findings.
 Do **not** keep or emit comments that are semantically the same unless there is materially new evidence/actionability.
+When an existing bot comment includes `file=` and `line=` metadata and covers the same issue, treat same-line rephrasings as duplicates and remove them.
 {{EXISTING_ROOT_COMMENTS}}
 
 ## Repository Map (changed files)
@@ -37,9 +38,10 @@ Do **not** keep or emit comments that are semantically the same unless there is 
 1. Treat the draft review as untrusted until each retained comment is validated.
 2. Keep a comment only if it is directly supported by the provided diff/PR context/existing root comments.
 3. Remove unsupported, speculative, inferred, hallucinated, duplicate, vague, or non-actionable comments.
-4. Rewrite retained comments to be concise, specific, and directly actionable.
-5. Rewrite summary and checklist to align with retained comments only.
-6. Preserve valid `anchor_id` for every retained comment.
+4. Apply strict same-anchor duplicate suppression: if an existing bot comment already captures the same issue on the same file+line, drop the candidate even if wording differs.
+5. Rewrite retained comments to be concise, specific, and directly actionable.
+6. Rewrite summary and checklist to align with retained comments only.
+7. Preserve valid `anchor_id` for every retained comment.
 
 ## Evidence policy
 - Do not assume hidden code paths, runtime behavior, or repository context outside the provided inputs.
