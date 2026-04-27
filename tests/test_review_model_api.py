@@ -111,8 +111,45 @@ Smoke tested in DEV"""
             "ADVISORY",
         )
         self.assertEqual(
+            review_module._resolve_comment_severity(
+                "MAJOR", "src/test/java/com/example/OrderServiceTest.java"
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            review_module._resolve_comment_severity(
+                "CRITICAL", "src/main/java/com/example/OrderServiceTestSuite.java"
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            review_module._resolve_comment_severity(
+                "MAJOR",
+                "src/main/java/com/example/OrderServiceIntegrationTests.java",
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
             review_module._resolve_comment_severity("MAJOR", "src/service.py"),
             "MAJOR",
+        )
+
+    def test_resolve_comment_severity_forces_advisory_for_naming_issue_comments(self):
+        self.assertEqual(
+            review_module._resolve_comment_severity(
+                "CRITICAL",
+                "src/main/java/com/example/OrderService.java",
+                "Variable naming convention should use lowerCamelCase.",
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            review_module._resolve_comment_severity(
+                "MAJOR",
+                "src/main/java/com/example/OrderService.java",
+                "Method name should describe intent more clearly.",
+            ),
+            "ADVISORY",
         )
 
     def test_parse_inline_comment_payload_falls_back_to_advisory_for_unknown_severity(self):

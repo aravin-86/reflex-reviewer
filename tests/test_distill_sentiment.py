@@ -17,6 +17,7 @@ from reflex_reviewer.distill import (
     _is_summary_comment_text,
     _parse_batched_sentiment_response,
     _parent_comment_id,
+    _resolve_comment_severity,
     _resolve_thread_sentiments,
     _select_top_comment_threads,
 )
@@ -230,6 +231,34 @@ class DistillTopThreadsAndBatchedSentimentTests(unittest.TestCase):
         messages = _build_batched_sentiment_messages(comment_threads, team_name="TEAM-ONE")
 
         self.assertIn('"severity": "ADVISORY"', messages[1]["content"])
+
+    def test_resolve_comment_severity_forces_advisory_for_java_test_paths(self):
+        self.assertEqual(
+            _resolve_comment_severity(
+                "CRITICAL", "src/test/java/com/example/OrderServiceTest.java"
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            _resolve_comment_severity(
+                "MAJOR", "src/main/java/com/example/OrderServiceIntegrationTests.java"
+            ),
+            "ADVISORY",
+        )
+        self.assertEqual(
+            _resolve_comment_severity("MAJOR", "src/main/java/com/example/Service.java"),
+            "MAJOR",
+        )
+
+    def test_resolve_comment_severity_forces_advisory_for_naming_issue_comments(self):
+        self.assertEqual(
+            _resolve_comment_severity(
+                "CRITICAL",
+                "src/main/java/com/example/Service.java",
+                "Class naming convention should follow UpperCamelCase.",
+            ),
+            "ADVISORY",
+        )
 
     def test_parse_batched_sentiment_response_accepts_valid_items_only(self):
         response = {

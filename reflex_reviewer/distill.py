@@ -9,6 +9,7 @@ from .config import (
     clear_runtime_overrides,
     get_common_config,
     get_distill_config,
+    get_review_config,
     resolve_dpo_training_data_file_path,
     set_runtime_overrides,
 )
@@ -26,9 +27,25 @@ from .vcs import get_vcs_client
 
 # --- Configuration ---
 distill_config = get_distill_config()
+review_config = get_review_config()
 ACTIVITIES_FETCH_LIMIT = distill_config["activities_fetch_limit"]
 DIFF_SKIP_EXTENSIONS = distill_config["diff_skip_extensions"]
 MAX_LLM_THREADS = distill_config["max_llm_threads"]
+TEST_FILE_PATH_MARKERS = {
+    str(marker or "").strip().replace("\\", "/").strip("/").lower()
+    for marker in review_config.get("test_file_path_markers", set())
+    if str(marker or "").strip()
+}
+TEST_FILE_NAME_PREFIXES = {
+    str(prefix or "").strip().lower()
+    for prefix in review_config.get("test_file_name_prefixes", set())
+    if str(prefix or "").strip()
+}
+TEST_FILE_NAME_SUFFIXES = {
+    str(suffix or "").strip().lower()
+    for suffix in review_config.get("test_file_name_suffixes", set())
+    if str(suffix or "").strip()
+}
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +62,25 @@ SUMMARY_COMMENT_SECTIONS = (
 SEVERITY_PREFIX_PATTERN = re.compile(
     r"^\[(?P<severity>[^\]]+)\]\s*(?P<body>.*)$", re.DOTALL
 )
+NAMING_ISSUE_ENTITY_TOKENS = {
+    "variable",
+    "class",
+    "method",
+    "function",
+    "parameter",
+    "param",
+    "field",
+    "property",
+    "identifier",
+}
+NAMING_ISSUE_SIGNAL_TOKENS = {
+    "name",
+    "naming",
+    "rename",
+    "renamed",
+    "renaming",
+    "misnamed",
+}
 
 
 def _parse_bool(value):
@@ -182,16 +218,35 @@ def _is_test_file_path(file_path):
     if not normalized:
         return False
 
-    if normalized.startswith("tests/") or "/tests/" in normalized:
-        return True
+    for marker in TEST_FILE_PATH_MARKERS:
+        if not marker:
+            continue
+        if (
+            normalized == marker
+            or normalized.startswith(f"{marker}/")
+            or f"/{marker}/" in normalized
+        ):
+            return True
 
     filename = normalized.rsplit("/", 1)[-1]
-    return (
-        filename.startswith("test_")
-        or filename.endswith("_test.py")
-        or filename.endswith("_tests.py")
-    )
+    if any(filename.startswith(prefix) for prefix in TEST_FILE_NAME_PREFIXES):
+        return True
 
+    return any(filename.endswith(suffix) for suffix in TEST_FILE_NAME_SUFFIXES)
+
+
+def _is_naming_issue_comment(text):
+    normalized_text = str(text or "").strip().lower()
+    if not normalized_text:
+        return False
+
+    if "naming convention" in normalized_text:
+        return True
+
+    tokens = set(re.findall(r"[a-z0-9_]+", normalized_text))
+    return bool(tokens & NAMING_ISSUE_ENTITY_TOKENS) and bool(
+        tokens & NAMING_ISSUE_SIGNAL_TOKENS
+    )
 
 def _normalize_comment_severity(severity):
     normalized = str(severity or "").strip().upper()
@@ -200,9 +255,11 @@ def _normalize_comment_severity(severity):
     return DEFAULT_COMMENT_SEVERITY
 
 
-def _resolve_comment_severity(severity, file_path=None):
+def _resolve_comment_severity(severity, file_path=None, comment_text=None):
     normalized = _normalize_comment_severity(severity)
     if _is_test_file_path(file_path):
+        return DEFAULT_COMMENT_SEVERITY
+    if _is_naming_issue_comment(comment_text):
         return DEFAULT_COMMENT_SEVERITY
     return normalized
 
@@ -216,7 +273,11 @@ def _extract_comment_severity(text, file_path=None):
     if not match:
         return DEFAULT_COMMENT_SEVERITY
 
-    return _resolve_comment_severity(match.group("severity"), file_path)
+    return _resolve_comment_severity(
+        match.group("severity"),
+        file_path,
+        match.group("body"),
+    )
 
 
 def _is_line_comment(comment, team_name=""):

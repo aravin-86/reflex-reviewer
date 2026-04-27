@@ -42,6 +42,8 @@ When an existing bot comment includes `file=` and `line=` metadata and covers th
 5. Rewrite retained comments to be concise, specific, and directly actionable.
 6. Rewrite summary and checklist to align with retained comments only.
 7. Preserve valid `anchor_id` for every retained comment.
+8. For variable/class/method naming issues, set severity to `ADVISORY` only.
+9. For any comment on test files or test classes (including Java test paths like `src/test/...` and `*Test.java` files), set severity to `ADVISORY` only.
 
 ## Evidence policy
 - Do not assume hidden code paths, runtime behavior, or repository context outside the provided inputs.

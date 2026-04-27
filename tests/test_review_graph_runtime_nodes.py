@@ -10,7 +10,19 @@ def _noop(*_args, **_kwargs):
 
 
 class ReviewGraphRuntimeNodesTests(unittest.TestCase):
-    def _build_nodes(self, *, max_repo_map_chars, max_related_files_chars, max_code_search_chars):
+    def _build_nodes(
+        self,
+        *,
+        max_repo_map_chars,
+        max_related_files_chars,
+        max_code_search_chars,
+        resolve_comment_severity=None,
+    ):
+        severity_resolver = (
+            resolve_comment_severity
+            if resolve_comment_severity is not None
+            else (lambda severity, _path: severity)
+        )
         return ReviewGraphNodes(
             resolve_runtime_settings=_noop,
             get_vcs_client=_noop,
@@ -42,7 +54,7 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
             build_review_purpose=_noop,
             build_previous_response_id=_noop,
             normalize_comment_severity=lambda severity: severity,
-            resolve_comment_severity=lambda severity, _path: severity,
+            resolve_comment_severity=severity_resolver,
             resolve_anchor_by_id=_noop,
             post_inline_comment=_noop,
             upsert_summary_comment=_noop,
@@ -215,6 +227,71 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
         guarded_comments = cast(list[dict[str, Any]], result.get("resolved_comments") or [])
         self.assertEqual(len(guarded_comments), 1)
         self.assertEqual(result.get("skipped_inline_count"), 1)
+
+    def test_policy_guard_applies_severity_priority_for_test_and_naming_comments(self):
+        def _resolver(severity, path, text=None):
+            normalized_path = str(path or "").lower()
+            normalized_text = str(text or "").lower()
+            if "/test/" in normalized_path or normalized_path.endswith("test.java"):
+                return "ADVISORY"
+            if "naming" in normalized_text and "name" in normalized_text:
+                return "ADVISORY"
+            return severity
+
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+            resolve_comment_severity=_resolver,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "resolved_comments": [
+                    {
+                        "anchor": {
+                            "path": "src/test/java/com/example/OrderServiceTest.java",
+                            "line": 10,
+                        },
+                        "path": "src/test/java/com/example/OrderServiceTest.java",
+                        "line": 10,
+                        "severity": "CRITICAL",
+                        "text": "Potential flaky test assertion.",
+                    },
+                    {
+                        "anchor": {
+                            "path": "src/main/java/com/example/OrderService.java",
+                            "line": 21,
+                        },
+                        "path": "src/main/java/com/example/OrderService.java",
+                        "line": 21,
+                        "severity": "MAJOR",
+                        "text": "Method naming convention: rename this function name.",
+                    },
+                    {
+                        "anchor": {
+                            "path": "src/main/java/com/example/OrderService.java",
+                            "line": 44,
+                        },
+                        "path": "src/main/java/com/example/OrderService.java",
+                        "line": 44,
+                        "severity": "MAJOR",
+                        "text": "Null pointer risk when auth header is missing.",
+                    },
+                ],
+                "existing_bot_inline_comments": [],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        guarded_comments = cast(list[dict[str, Any]], result.get("resolved_comments") or [])
+        self.assertEqual(len(guarded_comments), 3)
+        self.assertEqual(guarded_comments[0].get("severity"), "ADVISORY")
+        self.assertEqual(guarded_comments[1].get("severity"), "ADVISORY")
+        self.assertEqual(guarded_comments[2].get("severity"), "MAJOR")
 
 
 if __name__ == "__main__":

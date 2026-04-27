@@ -217,6 +217,13 @@ class ReviewGraphNodes:
         except (TypeError, ValueError):
             return default
 
+    def _resolve_comment_severity_with_context(self, severity, file_path=None, comment_text=None):
+        """Resolve severity with best-effort compatibility for resolver signatures."""
+        try:
+            return self._resolve_comment_severity(severity, file_path, comment_text)
+        except TypeError:
+            return self._resolve_comment_severity(severity, file_path)
+
     @staticmethod
     def _normalize_repo_path(file_path):
         normalized = str(file_path or "").strip().replace("\\", "/")
@@ -402,7 +409,9 @@ class ReviewGraphNodes:
             if not self._is_bot_comment_text(raw_text, team_name):
                 continue
 
-            anchor_path, anchor_line = self._resolve_existing_inline_anchor_location(comment)
+            anchor_path, anchor_line = self._resolve_existing_inline_anchor_location(
+                comment
+            )
             normalized_path = self._normalize_repo_path(anchor_path)
             normalized_line = self._safe_int(anchor_line, default=0)
             if not normalized_path or normalized_line <= 0:
@@ -414,9 +423,9 @@ class ReviewGraphNodes:
                 continue
 
             fingerprint_tokens = sorted(self._token_set_for_similarity(normalized_text))
-            fingerprint = " ".join(fingerprint_tokens) or self._normalize_comment_text_for_fingerprint(
-                normalized_text
-            )
+            fingerprint = " ".join(
+                fingerprint_tokens
+            ) or self._normalize_comment_text_for_fingerprint(normalized_text)
             if not fingerprint:
                 continue
 
@@ -1021,15 +1030,21 @@ class ReviewGraphNodes:
             guarded_comments.append(
                 {
                     **comment,
-                    "severity": self._resolve_comment_severity(
-                        comment.get("severity"), comment.get("path")
+                    "severity": self._resolve_comment_severity_with_context(
+                        comment.get("severity"),
+                        comment.get("path"),
+                        comment.get("text"),
                     ),
                 }
             )
             if anchor_key:
-                accepted_comments_by_anchor.setdefault(anchor_key, []).append(comment_text)
+                accepted_comments_by_anchor.setdefault(anchor_key, []).append(
+                    comment_text
+                )
 
-        skipped_inline_count = self._safe_int(state.get("skipped_inline_count"), default=0)
+        skipped_inline_count = self._safe_int(
+            state.get("skipped_inline_count"), default=0
+        )
         skipped_inline_count += duplicate_suppressed_count
 
         result: ReviewGraphState = {

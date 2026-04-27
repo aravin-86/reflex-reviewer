@@ -56,6 +56,21 @@ MAX_CODE_SEARCH_RESULTS = review_config["max_code_search_results"]
 MAX_CODE_SEARCH_CHARS = review_config["max_code_search_chars"]
 MAX_CODE_SEARCH_QUERY_TERMS = review_config["max_code_search_query_terms"]
 REPOSITORY_IGNORE_DIRECTORIES = review_config["repository_ignore_directories"]
+TEST_FILE_PATH_MARKERS = {
+    str(marker or "").strip().replace("\\", "/").strip("/").lower()
+    for marker in review_config.get("test_file_path_markers", set())
+    if str(marker or "").strip()
+}
+TEST_FILE_NAME_PREFIXES = {
+    str(prefix or "").strip().lower()
+    for prefix in review_config.get("test_file_name_prefixes", set())
+    if str(prefix or "").strip()
+}
+TEST_FILE_NAME_SUFFIXES = {
+    str(suffix or "").strip().lower()
+    for suffix in review_config.get("test_file_name_suffixes", set())
+    if str(suffix or "").strip()
+}
 SKIP_EXTENSIONS = review_config["skip_extensions"]
 SKIP_FILES = review_config["skip_files"]
 MODEL_ENDPOINT = str(model_config.get("model_endpoint") or "responses").strip().lower()
@@ -82,6 +97,25 @@ BOT_SIGNATURE_PATTERN = re.compile(
 )
 PURPOSE_FALLBACK = "Not specified in PR metadata"
 PURPOSE_MAX_CHARS = 400
+NAMING_ISSUE_ENTITY_TOKENS = {
+    "variable",
+    "class",
+    "method",
+    "function",
+    "parameter",
+    "param",
+    "field",
+    "property",
+    "identifier",
+}
+NAMING_ISSUE_SIGNAL_TOKENS = {
+    "name",
+    "naming",
+    "rename",
+    "renamed",
+    "renaming",
+    "misnamed",
+}
 
 
 def _parse_bool(value):
@@ -177,16 +211,35 @@ def _is_test_file_path(file_path):
     if not normalized:
         return False
 
-    if normalized.startswith("tests/") or "/tests/" in normalized:
-        return True
+    for marker in TEST_FILE_PATH_MARKERS:
+        if not marker:
+            continue
+        if (
+            normalized == marker
+            or normalized.startswith(f"{marker}/")
+            or f"/{marker}/" in normalized
+        ):
+            return True
 
     filename = normalized.rsplit("/", 1)[-1]
-    return (
-        filename.startswith("test_")
-        or filename.endswith("_test.py")
-        or filename.endswith("_tests.py")
-    )
+    if any(filename.startswith(prefix) for prefix in TEST_FILE_NAME_PREFIXES):
+        return True
 
+    return any(filename.endswith(suffix) for suffix in TEST_FILE_NAME_SUFFIXES)
+
+
+def _is_naming_issue_comment(text):
+    normalized_text = str(text or "").strip().lower()
+    if not normalized_text:
+        return False
+
+    if "naming convention" in normalized_text:
+        return True
+
+    tokens = set(re.findall(r"[a-z0-9_]+", normalized_text))
+    return bool(tokens & NAMING_ISSUE_ENTITY_TOKENS) and bool(
+        tokens & NAMING_ISSUE_SIGNAL_TOKENS
+    )
 
 def _normalize_comment_severity(severity):
     normalized = str(severity or "").strip().upper()
@@ -195,9 +248,11 @@ def _normalize_comment_severity(severity):
     return DEFAULT_COMMENT_SEVERITY
 
 
-def _resolve_comment_severity(severity, file_path=None):
+def _resolve_comment_severity(severity, file_path=None, comment_text=None):
     normalized = _normalize_comment_severity(severity)
     if _is_test_file_path(file_path):
+        return DEFAULT_COMMENT_SEVERITY
+    if _is_naming_issue_comment(comment_text):
         return DEFAULT_COMMENT_SEVERITY
     return normalized
 
@@ -817,7 +872,7 @@ def post_inline_comment(vcs_client, pr_id, anchor, severity, text, team_name):
     """
     hashtag_team_name = str(team_name or "").strip().lstrip("#")
     anchor_path = anchor.get("path") if isinstance(anchor, dict) else None
-    normalized_severity = _resolve_comment_severity(severity, anchor_path)
+    normalized_severity = _resolve_comment_severity(severity, anchor_path, text)
     body = f"[{normalized_severity}] {text}\n\n### #{hashtag_team_name}"
     return vcs_client.post_comment(pr_id, body, anchor=anchor)
 

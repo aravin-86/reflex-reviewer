@@ -131,6 +131,9 @@ Review behavior worth knowing:
 - Same-anchor duplicate suppression is enforced in two layers:
   - judge instructions explicitly remove semantically equivalent already-covered bot comments on the same file/line,
   - `policy_guard` applies deterministic same-anchor near-duplicate filtering before publishing.
+- Severity policy is strict across draft and judge stages:
+  - variable/class/method naming issues are always `ADVISORY`,
+  - any comments on test files/classes are always `ADVISORY` (including Java test paths like `src/test/...` and `*Test.java`).
 - The same repository context bundle is injected into both the draft and judge prompt paths.
 - Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
 - Every review run posts a fresh summary comment and may also publish inline comments.
@@ -228,6 +231,10 @@ Important settings in `reflex_reviewer.toml`:
   - `reasoning_effort`
 - `[llm_api]`
   - `read_timeout_seconds`
+- `[review]`
+  - `test_file_path_markers` (default includes `tests`, `src/test`)
+  - `test_file_name_prefixes` (default includes `test_`)
+  - `test_file_name_suffixes` (default includes Python and Java test naming patterns such as `_test.py`, `*Test.java`, `*IntegrationTests.java`)
 - `[review.repository_context]`
   - `repository_path`
   - `ignore_directories` (env-backed via `REPOSITORY_IGNORE_DIRECTORIES`; values are added to built-in default ignore directories)

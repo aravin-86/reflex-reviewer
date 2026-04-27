@@ -49,6 +49,20 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         "tmp",
         "temp",
     }
+    DEFAULT_TEST_FILE_PATH_MARKERS = {"tests", "src/test"}
+    DEFAULT_TEST_FILE_NAME_PREFIXES = {"test_"}
+    DEFAULT_TEST_FILE_NAME_SUFFIXES = {
+        "_test.py",
+        "_tests.py",
+        "test.java",
+        "tests.java",
+        "testsuite.java",
+        "testsuites.java",
+        "testcase.java",
+        "testcases.java",
+        "integrationtest.java",
+        "integrationtests.java",
+    }
 
     def tearDown(self):
         clear_runtime_overrides()
@@ -192,6 +206,18 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
             review_config.get("repository_ignore_directories"),
             self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES,
         )
+        self.assertEqual(
+            review_config.get("test_file_path_markers"),
+            self.DEFAULT_TEST_FILE_PATH_MARKERS,
+        )
+        self.assertEqual(
+            review_config.get("test_file_name_prefixes"),
+            self.DEFAULT_TEST_FILE_NAME_PREFIXES,
+        )
+        self.assertEqual(
+            review_config.get("test_file_name_suffixes"),
+            self.DEFAULT_TEST_FILE_NAME_SUFFIXES,
+        )
 
     def test_review_repository_context_resolves_repository_path_from_env(self):
         with patch.dict(
@@ -215,6 +241,33 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
             review_config.get("repository_ignore_directories"),
             self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES
             | {"dev-tools", ".cache", "nested"},
+        )
+
+    def test_review_config_merges_test_file_patterns_from_toml_with_defaults(self):
+        file_config = {
+            "review": {
+                "test_file_path_markers": ["tests", "qa/tests"],
+                "test_file_name_prefixes": ["test_", "it_"],
+                "test_file_name_suffixes": ["Spec.java", "Specs.java"],
+            }
+        }
+
+        with patch("reflex_reviewer.config._FILE_CONFIG", file_config), patch.dict(
+            "os.environ", {}, clear=True
+        ):
+            review_config = get_review_config()
+
+        self.assertEqual(
+            review_config.get("test_file_path_markers"),
+            self.DEFAULT_TEST_FILE_PATH_MARKERS | {"qa/tests"},
+        )
+        self.assertEqual(
+            review_config.get("test_file_name_prefixes"),
+            self.DEFAULT_TEST_FILE_NAME_PREFIXES | {"it_"},
+        )
+        self.assertEqual(
+            review_config.get("test_file_name_suffixes"),
+            self.DEFAULT_TEST_FILE_NAME_SUFFIXES | {"spec.java", "specs.java"},
         )
 
     def test_oauth2_config_uses_fallback_env_vars(self):

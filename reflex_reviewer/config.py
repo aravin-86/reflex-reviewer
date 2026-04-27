@@ -56,6 +56,25 @@ _DEFAULT_REPOSITORY_IGNORE_DIRECTORIES = {
     "tmp",
     "temp",
 }
+_DEFAULT_TEST_FILE_PATH_MARKERS = {
+    "tests",
+    "src/test",
+}
+_DEFAULT_TEST_FILE_NAME_PREFIXES = {
+    "test_",
+}
+_DEFAULT_TEST_FILE_NAME_SUFFIXES = {
+    "_test.py",
+    "_tests.py",
+    "Test.java",
+    "Tests.java",
+    "TestSuite.java",
+    "TestSuites.java",
+    "TestCase.java",
+    "TestCases.java",
+    "IntegrationTest.java",
+    "IntegrationTests.java",
+}
 
 
 load_dotenv(_ROOT_DIR / ".env")
@@ -210,6 +229,29 @@ def _to_directory_name_set(value):
         if not candidate:
             continue
         normalized.add(candidate.split("/")[-1])
+
+    return normalized
+
+
+def _to_pattern_set(value):
+    """Parse lowercase pattern values from comma-separated strings or iterables."""
+    if value is None:
+        return set()
+
+    raw_values = []
+    if isinstance(value, str):
+        raw_values.extend(value.split(","))
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            raw_values.extend(str(item or "").split(","))
+    else:
+        raw_values.append(str(value))
+
+    normalized = set()
+    for raw_value in raw_values:
+        candidate = str(raw_value or "").strip().replace("\\", "/").lower()
+        if candidate:
+            normalized.add(candidate)
 
     return normalized
 
@@ -493,6 +535,15 @@ def get_review_config():
             "ignore_directories",
         )
     )
+    configured_test_file_path_markers = _to_pattern_set(
+        _config_value("review", "test_file_path_markers")
+    )
+    configured_test_file_name_prefixes = _to_pattern_set(
+        _config_value("review", "test_file_name_prefixes")
+    )
+    configured_test_file_name_suffixes = _to_pattern_set(
+        _config_value("review", "test_file_name_suffixes")
+    )
 
     return {
         "response_state_file": _config_value("review", "response_state_file"),
@@ -579,6 +630,12 @@ def get_review_config():
         ),
         "repository_ignore_directories": set(_DEFAULT_REPOSITORY_IGNORE_DIRECTORIES)
         | configured_repository_ignore_directories,
+        "test_file_path_markers": set(_DEFAULT_TEST_FILE_PATH_MARKERS)
+        | configured_test_file_path_markers,
+        "test_file_name_prefixes": set(_DEFAULT_TEST_FILE_NAME_PREFIXES)
+        | configured_test_file_name_prefixes,
+        "test_file_name_suffixes": set(_DEFAULT_TEST_FILE_NAME_SUFFIXES)
+        | configured_test_file_name_suffixes,
         "skip_extensions": _to_set(_config_value("review", "skip_extensions")),
         "skip_files": _to_set(_config_value("review", "skip_files")),
     }

@@ -39,6 +39,39 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Expanded test-file severity coercion to include Java test conventions across review/distill paths:
+  - updated runtime severity resolvers:
+    - `reflex_reviewer/review.py` (`_is_test_file_path`)
+    - `reflex_reviewer/distill.py` (`_is_test_file_path`)
+  - added Java test recognition:
+    - `src/test/...` path handling,
+    - Java test-class suffix handling (`*Test.java`, `*Tests.java`, `*TestCase.java`, `*IntegrationTest.java`).
+  - updated prompts/docs to explicitly mention Java test-file scope for advisory-only severity:
+    - `reflex_reviewer/prompts/review_system_prompt.md`
+    - `reflex_reviewer/prompts/review_user_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+    - `README.md`
+  - added test coverage:
+    - `tests/test_review_model_api.py`
+    - `tests/test_distill_sentiment.py`
+  - verification notes:
+    - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_model_api tests.test_distill_sentiment`
+    - Result: `Ran 50 tests ... OK`.
+
+- Updated review severity guidance in prompt templates to enforce advisory-only handling for naming/test feedback:
+  - updated prompts:
+    - `reflex_reviewer/prompts/review_system_prompt.md`
+    - `reflex_reviewer/prompts/review_user_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_system_prompt.md`
+    - `reflex_reviewer/prompts/judge_review_user_prompt.md`
+  - policy now explicitly states:
+    - variable/class/method naming issues are `ADVISORY` only,
+    - any comments on test files/classes are `ADVISORY` only.
+  - updated docs/context:
+    - `README.md` review-flow behavior notes now include this strict severity policy,
+    - `memory-bank/activeContext.md` records the prompt-policy alignment decision.
+
 - Updated repository-context ignore-directory defaults to be additive and broader by default:
   - updated `reflex_reviewer/config.py`:
     - added centralized built-in default ignore-directory baseline for common Python/Java/cache/build/log/temp artifacts,

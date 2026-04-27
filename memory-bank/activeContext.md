@@ -78,6 +78,19 @@
   - suppressed findings increment `skipped_inline_count` and are not posted.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
+- Draft and judge review prompts now explicitly enforce severity policy consistency:
+  - variable/class/method naming issues must be emitted as `ADVISORY` only,
+  - comments on test files/classes must be `ADVISORY` only.
+- Test-file severity coercion now explicitly includes Java test conventions in runtime severity resolvers used by review/distill and policy guard path:
+  - recognizes `src/test/...` paths,
+  - recognizes Java test-class file names like `*Test.java` / `*Tests.java` / `*TestCase.java` / `*IntegrationTest.java`.
+- Test-file detection is now centralized via `get_review_config()` and `reflex_reviewer.toml` keys:
+  - `review.test_file_path_markers`,
+  - `review.test_file_name_prefixes`,
+  - `review.test_file_name_suffixes`.
+  Runtime now merges these with built-in defaults in `config.py` and reuses them in both `review.py` and `distill.py`.
+- Policy guard severity enforcement now passes comment text as context to the severity resolver (with backward-compatible fallback for older 2-arg resolvers), so naming-related comments are deterministically coerced to `ADVISORY` at publish time.
+- Draft review user prompt now has an explicit strict severity policy section and no longer carries the earlier "naming suggestions unless critical" ignore line.
 - Review summary handling is now append-only:
   - review no longer deletes/replaces older summary comments,
   - each review run posts a fresh summary comment.

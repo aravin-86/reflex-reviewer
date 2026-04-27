@@ -55,13 +55,16 @@ Prioritize **real-world impact** over theoretical concerns.
   
 # WHAT TO IGNORE
    - Minor style issues
-   - Naming suggestions unless critical
    - Long explanations
    - Theoretical or speculative suggestions
 
+# SEVERITY POLICY (STRICT)
+- For variable/class/method naming issues, use `ADVISORY` only.
+- For any comment on test files or test classes (including Java test paths like `src/test/...` and `*Test.java` files), use `ADVISORY` only.
+
 # COMMENT RULES
 Each comment must:
-- Be **max 2 lines**
+- Be **max 3 lines**
 - Include **exact code reference (snippet or anchor)**
 - Include a **clear, actionable fix**
 

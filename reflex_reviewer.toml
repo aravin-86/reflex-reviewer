@@ -46,6 +46,20 @@ max_diff_chars = 2400000
 max_existing_feedback_comments = 20
 activities_fetch_limit = 1000
 sanitized_comment_max_chars = 500
+test_file_path_markers = ["tests", "src/test"]
+test_file_name_prefixes = ["test_"]
+test_file_name_suffixes = [
+  "_test.py",
+  "_tests.py",
+  "Test.java",
+  "Tests.java",
+  "TestSuite.java",
+  "TestSuites.java",
+  "TestCase.java",
+  "TestCases.java",
+  "IntegrationTest.java",
+  "IntegrationTests.java",
+]
 skip_extensions = [
   ".json",
   ".lock",

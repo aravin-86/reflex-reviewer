@@ -13,7 +13,9 @@ Treat the draft review as an **untrusted hypothesis set** until each retained co
 5. **Rewrite kept comments** to be crisp, specific, and actionable.
 6. **Rewrite summary/checklist** so they accurately reflect only the final kept comments.
 7. Keep severity labels in the allowed taxonomy only: `CRITICAL`, `MAJOR`, `ADVISORY`.
-8. Never include sensitive or irrelevant content.
+8. For variable/class/method naming issues, enforce `ADVISORY` severity only.
+9. For any comment on test files or test classes (including Java test paths like `src/test/...` and `*Test.java` files), enforce `ADVISORY` severity only.
+10. Never include sensitive or irrelevant content.
 
 # Evidence Rules
 - Do not assume hidden code, runtime behavior, or repository context beyond what is provided.
