@@ -74,6 +74,7 @@ _DEFAULT_TEST_FILE_NAME_SUFFIXES = {
     "TestCases.java",
     "IntegrationTest.java",
     "IntegrationTests.java",
+    "IT.java"
 }
 
 

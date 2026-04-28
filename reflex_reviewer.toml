@@ -59,6 +59,7 @@ test_file_name_suffixes = [
   "TestCases.java",
   "IntegrationTest.java",
   "IntegrationTests.java",
+  "IT.java"
 ]
 skip_extensions = [
   ".json",
