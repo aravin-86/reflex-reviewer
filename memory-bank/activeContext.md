@@ -38,6 +38,15 @@
 - Keep logging minimal and safe; avoid sensitive payload logging.
 
 ## Decisions captured in this update
+- Refined `README.md` Section 2.2 (`Review flow`) to improve readability without changing behavior:
+  - tightened the four core stage descriptions (`Context gathering`, `Repository enrichment`, `Inference`, `Publishing`),
+  - split nested repository-context details into a dedicated `Repository enrichment includes` block,
+  - separated ReAct loop details into an `Inference behavior` block,
+  - regrouped review guarantees into clearer `Grounding and repetition control`, `Severity policy`, `Shared context grounding`, and `Publishing behavior` subsections.
+- Refined `README.md` Section 2 (`Architecture`) for clearer, scan-friendly presentation while preserving technical meaning:
+  - replaced the flat `Key ideas` list with grouped `Architecture highlights` blocks,
+  - organized explanation into `Execution model`, `Context strategy`, and `Output quality controls`,
+  - tightened wording to reduce overlap and align with existing `2.1`–`2.5` subsections.
 - Review graph agents now support iterative ReAct loops for both `draft_reviewer` and `evidence_judge`:
   - strict action JSON interface (`tool_call` or `final_review`),
   - bounded iterations and tool-call caps,

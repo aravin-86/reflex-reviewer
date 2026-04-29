@@ -49,13 +49,16 @@ Reflex Reviewer has two main parts:
 - a **graph-orchestrated review pipeline** for PR actuation, and
 - a **learning loop** for distillation and refinement.
 
-Key ideas:
-- **Context-aware zero-shot review:** structured prompts combine reviewer persona, review guidelines, and chain of thought using LangGraph-orchestrated reasoning to analyze code changes.
-- **Reason and Act (ReAct) review orchestration:** draft and judge agents follow an internal iterative cycle of **Reason → Act (tool call) → Observe → repeat**, then emit a final structured review payload.
-- **Hybrid repository-aware context enrichment:** the review flow augments diff evidence with a two-mode strategy: lightweight bootstrap context is injected early, while heavier repository evidence is retrieved lazily via bounded tool calls only when required.
-- **Multi-agent review pipeline:** a review agent drafts findings, and a judge agent verifies them before posting.
-- **LLM-as-a-Judge verification:** candidate comments are checked for factual correctness against available evidence to reduce hallucinations.
-- **Actionability verification:** feedback is filtered toward comments that are specific, resolvable, and useful in follow-up commits.
+Architecture highlights:
+- **Execution model**
+  - **Graph-orchestrated review runtime:** deterministic stages handle context retrieval, prompt preparation, normalization, and publishing, while LLM stages handle draft and judge inference.
+  - **ReAct-style bounded orchestration:** draft and judge agents run internal **Reason → Act (tool call) → Observe** loops, repeating only until evidence is sufficient within configured iteration and tool-call limits.
+- **Context strategy**
+  - **Context-aware zero-shot prompting:** structured prompts combine reviewer persona, review guidelines, PR metadata, diff evidence, and existing root-comment context.
+  - **Hybrid repository-aware enrichment:** changed-file bootstrap context is injected early, while heavier repository evidence is retrieved lazily through bounded internal tool calls only when needed.
+- **Output quality controls**
+  - **Two-agent draft → judge pipeline:** a draft agent proposes findings, and a judge agent verifies and curates what can be posted.
+  - **Evidence + actionability verification:** candidate comments are filtered for factual correctness, specificity, and resolvability to reduce hallucinations and improve follow-up usefulness.
 
 ### 2.1 Architecture diagram
 
@@ -119,28 +122,35 @@ flowchart TB
 The PR review flow is orchestrated by `reflex_reviewer/review.py` through `reflex_reviewer/review_graph_runtime/graph.py`.
 
 High-level stages:
-- **Context gathering:** fetch PR metadata, diff, activities, and changed files.
-- **Repository enrichment (hybrid):** apply lightweight changed-files bootstrap context first, then build additional repository evidence lazily as needed from `REPOSITORY_PATH`.
-  - **Bootstrap context (eager):** include changed-file metadata early so agents can reason before expensive retrieval.
-  - **On-demand context (lazy):** retrieve heavier evidence through bounded internal tool calls when the agent decides additional validation is needed.
-  - **Repository map:** a compact structural summary of the changed files themselves (for example package/import/type/function-level information).
-  - **Related-file context:** deterministic snippets from nearby files inferred from imports or module relationships.
-  - **Bounded code-search context:** repository-wide line matches for deterministic terms derived from changed files, useful for spotting precedent, duplication, and missed follow-up updates.
+- **Context gathering:** collect PR metadata, diff content, activities, and changed-file information.
+- **Repository enrichment (hybrid):** start with lightweight changed-file bootstrap context, then retrieve heavier repository evidence lazily from `REPOSITORY_PATH` only when needed.
 - **Inference:** prepare prompt inputs, run `draft_reviewer`, normalize findings, and run `evidence_judge`.
-  - Draft and judge agents use ReAct-style internal control loops: **Reason → Act (tool call) → Observe**, repeating until evidence is sufficient to return a final review output.
 - **Publishing:** build the summary, resolve anchors, apply posting policy, and publish the review.
 
+Repository enrichment includes:
+- **Bootstrap context (eager):** include changed-file metadata early so agents can reason before expensive retrieval.
+- **Repository map:** a compact structural summary of the changed files themselves (for example package/import/type/function-level information).
+- **Related-file context:** deterministic snippets from nearby files inferred from imports or module relationships.
+- **Bounded code-search context:** repository-wide line matches for deterministic terms derived from changed files, useful for spotting precedent, duplication, and missed follow-up updates.
+- **On-demand context (lazy):** retrieve heavier evidence through bounded internal tool calls when the agent decides additional validation is needed.
+
+Inference behavior:
+- Draft and judge agents use ReAct-style internal control loops: **Reason → Act (tool call) → Observe**, repeating until evidence is sufficient to return a final review output.
+
 Review behavior worth knowing:
-- Existing root comment context from humans and bots is used to reduce repetitive suggestions.
-- Same-anchor duplicate suppression is enforced in two layers:
-  - judge instructions explicitly remove semantically equivalent already-covered bot comments on the same file/line,
-  - `policy_guard` applies deterministic same-anchor near-duplicate filtering before publishing.
-- Severity policy is strict across draft and judge stages:
-  - variable/class/method naming issues are always `ADVISORY`,
-  - any comments on test files/classes are always `ADVISORY` (including Java test paths like `src/test/...` and `*Test.java`).
-- The same repository context bundle is injected into both the draft and judge prompt paths.
-- Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
-- Every review run posts a fresh summary comment and may also publish inline comments.
+- **Grounding and repetition control**
+  - Existing root comment context from humans and bots is used to reduce repetitive suggestions.
+  - Same-anchor duplicate suppression is enforced in two layers:
+    - judge instructions explicitly remove semantically equivalent already-covered bot comments on the same file/line,
+    - `policy_guard` applies deterministic same-anchor near-duplicate filtering before publishing.
+- **Severity policy**
+  - Variable/class/method naming issues are always `ADVISORY`.
+  - Any comments on test files/classes are always `ADVISORY` (including Java test paths like `src/test/...` and `*Test.java`).
+- **Shared context grounding**
+  - The same repository context bundle is injected into both the draft and judge prompt paths.
+  - Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
+- **Publishing behavior**
+  - Every review run posts a fresh summary comment and may also publish inline comments.
 
 ### 2.3 Review graph diagram
 
