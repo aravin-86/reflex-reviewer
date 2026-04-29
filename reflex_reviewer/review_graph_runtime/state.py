@@ -28,17 +28,26 @@ class ReviewGraphState(TypedDict, total=False):
     existing_bot_inline_comments: List[Dict[str, Any]]
 
     changed_file_paths: List[str]
+    changed_files_context: str
     repo_map: str
     related_files_context: str
     code_search_context: str
     repository_context_bundle: Dict[str, str]
+    draft_repository_context_bundle: Dict[str, str]
+    judge_repository_context_bundle: Dict[str, str]
 
     draft_sys_p: str
     draft_user_p: str
     draft_review_data: Dict[str, Any]
     normalized_draft_review_data: Dict[str, Any]
+    draft_iteration_count: int
+    draft_tool_calls: int
+    draft_tool_trace: List[Dict[str, Any]]
 
     review_data: Dict[str, Any]
+    judge_iteration_count: int
+    judge_tool_calls: int
+    judge_tool_trace: List[Dict[str, Any]]
     comments: List[Dict[str, Any]]
     resolved_comments: List[Dict[str, Any]]
     raw_comment_count: int

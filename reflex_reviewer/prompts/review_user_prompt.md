@@ -83,6 +83,9 @@ IMPORTANT:
 Use these root-level comments as already-covered context. Do **not** restate the same issue unless there is materially new evidence/actionability.
 {{EXISTING_ROOT_COMMENTS}}
 
+## Changed Files (bootstrap context)
+{{CHANGED_FILES_CONTEXT}}
+
 ## Repository Map (changed files)
 {{REPOSITORY_MAP}}
 

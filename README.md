@@ -51,7 +51,8 @@ Reflex Reviewer has two main parts:
 
 Key ideas:
 - **Context-aware zero-shot review:** structured prompts combine reviewer persona, review guidelines, and chain of thought using LangGraph-orchestrated reasoning to analyze code changes.
-- **Repository-aware context enrichment:** the review flow augments the diff with relevant repository context, not just changed lines.
+- **Reason and Act (ReAct) review orchestration:** draft and judge agents follow an internal iterative cycle of **Reason → Act (tool call) → Observe → repeat**, then emit a final structured review payload.
+- **Hybrid repository-aware context enrichment:** the review flow augments diff evidence with a two-mode strategy: lightweight bootstrap context is injected early, while heavier repository evidence is retrieved lazily via bounded tool calls only when required.
 - **Multi-agent review pipeline:** a review agent drafts findings, and a judge agent verifies them before posting.
 - **LLM-as-a-Judge verification:** candidate comments are checked for factual correctness against available evidence to reduce hallucinations.
 - **Actionability verification:** feedback is filtered toward comments that are specific, resolvable, and useful in follow-up commits.
@@ -119,11 +120,14 @@ The PR review flow is orchestrated by `reflex_reviewer/review.py` through `refle
 
 High-level stages:
 - **Context gathering:** fetch PR metadata, diff, activities, and changed files.
-- **Repository enrichment:** build a repository map, related-file context, and bounded code-search context from `REPOSITORY_PATH`.
+- **Repository enrichment (hybrid):** apply lightweight changed-files bootstrap context first, then build additional repository evidence lazily as needed from `REPOSITORY_PATH`.
+  - **Bootstrap context (eager):** include changed-file metadata early so agents can reason before expensive retrieval.
+  - **On-demand context (lazy):** retrieve heavier evidence through bounded internal tool calls when the agent decides additional validation is needed.
   - **Repository map:** a compact structural summary of the changed files themselves (for example package/import/type/function-level information).
   - **Related-file context:** deterministic snippets from nearby files inferred from imports or module relationships.
   - **Bounded code-search context:** repository-wide line matches for deterministic terms derived from changed files, useful for spotting precedent, duplication, and missed follow-up updates.
 - **Inference:** prepare prompt inputs, run `draft_reviewer`, normalize findings, and run `evidence_judge`.
+  - Draft and judge agents use ReAct-style internal control loops: **Reason → Act (tool call) → Observe**, repeating until evidence is sufficient to return a final review output.
 - **Publishing:** build the summary, resolve anchors, apply posting policy, and publish the review.
 
 Review behavior worth knowing:
@@ -246,6 +250,15 @@ Important settings in `reflex_reviewer.toml`:
   - `max_code_search_results` (default: `500`)
   - `max_code_search_chars` (default: `150000`)
   - `max_code_search_query_terms` (default: `50`)
+- `[review.react]`
+  - `enabled` (default: `true`)
+  - `max_draft_iterations` (default: `4`)
+  - `max_judge_iterations` (default: `3`)
+  - `max_tool_calls_per_agent` (default: `8`)
+  - `max_tool_result_chars` (default: `12000`)
+  - `default_include_changed_files` (default: `true`)
+  - `allow_judge_tool_retrieval` (default: `true`)
+  - `lazy_repository_context` (default: `true`)
 
 Important behavior notes:
 - `--dpo-training-data-dir` is the parent directory for team-specific DPO datasets.
@@ -253,6 +266,7 @@ Important behavior notes:
 - `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML socket read timeout.
 - `REPOSITORY_PATH` points repository-aware review at a local checkout; if unset or invalid, review safely continues with PR context only.
 - `REPOSITORY_IGNORE_DIRECTORIES` adds comma-separated directory names to exclude during repository code-search scanning, in addition to built-in default ignore directories.
+- ReAct mode uses a changed-files bootstrap context by default and retrieves heavier repository context lazily through bounded internal tool calls.
 
 To enable repository-aware review context in practice, export `REPOSITORY_PATH` to the checked-out repository you want Reflex Reviewer to inspect. Example:
 

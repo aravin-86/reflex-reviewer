@@ -1,6 +1,8 @@
 # Active Context
 
 ## Current focus
+- Implemented ReAct-style draft/judge review orchestration with bounded internal tool calls and internal monologue control blocks.
+- Validate lazy repository-context strategy: send lightweight changed-files bootstrap initially and defer heavier repository context retrieval to on-demand tool calls.
 - Reduce noisy repository code-search context during review graph retrieval by improving Java term extraction quality and adding configurable repository directory ignores.
 - Keep Build Pipeline usage copy-friendly with a standalone two-file Python runner.
 - Keep pipeline orchestration simple: run only `review`, `distill`, and `refine`.
@@ -36,6 +38,29 @@
 - Keep logging minimal and safe; avoid sensitive payload logging.
 
 ## Decisions captured in this update
+- Review graph agents now support iterative ReAct loops for both `draft_reviewer` and `evidence_judge`:
+  - strict action JSON interface (`tool_call` or `final_review`),
+  - bounded iterations and tool-call caps,
+  - internal-only reasoning instruction (no chain-of-thought exposure),
+  - deterministic fallback to safe empty review payload when model output is unusable.
+- Added bounded internal retrieval tools available to ReAct agents:
+  - `get_changed_files`, `get_repo_map`, `get_related_files`, `search_code`, `get_repository_context_bundle`.
+- Added lazy repository-context bootstrap behavior in deterministic context nodes:
+  - when ReAct + lazy mode is enabled, initial prompt receives changed-files context plus explicit deferred/unavailable placeholders,
+  - draft/judge agent loops can request repository context only when needed.
+- Added ReAct runtime configuration in `reflex_reviewer.toml` / `config.py` under `[review.react]`:
+  - `enabled`, `max_draft_iterations`, `max_judge_iterations`, `max_tool_calls_per_agent`,
+  - `max_tool_result_chars`, `default_include_changed_files`, `allow_judge_tool_retrieval`, `lazy_repository_context`.
+- Added/updated runtime state tracking for ReAct execution metrics:
+  - iteration counts, tool-call counts, tool traces, and per-agent repository bundle snapshots.
+- Added targeted ReAct tests and regressions:
+  - new `tests/test_review_graph_runtime_agents.py`,
+  - updated `tests/test_review_graph_runtime_nodes.py`,
+  - validated config/runtime review API interactions.
+- Verified with targeted suite:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_nodes tests.test_review_graph_runtime_agents tests.test_review_model_api tests.test_config_runtime_overrides`
+  - Result: `Ran 55 tests ... OK`.
+
 - Java tree-sitter parser bootstrap now uses runtime-compatible dynamic assignment (`getattr`/`setattr`) for parser language wiring so both API variants remain supported while avoiding static-type attribute errors in editor diagnostics.
 - Repository context code-search supports configurable ignored directories (`review.repository_context.ignore_directories`, env-backed by `REPOSITORY_IGNORE_DIRECTORIES`) with additive built-in default ignore directories for common Python/Java/cache/build/log/temp artifacts.
 - Java repository-context extraction now uses parser-backed `tree-sitter-java` extraction for package/import/type/method discovery, avoiding token leakage from string literals/comments (e.g., terms like `cannot`).

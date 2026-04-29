@@ -5,8 +5,10 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv  # type: ignore[reportMissingImports]
 except ModuleNotFoundError:  # pragma: no cover - setup/runtime bootstrap fallback
+
     def load_dotenv(*_args, **_kwargs):
         return False
+
 
 try:
     import tomllib  # type: ignore[reportMissingImports]
@@ -74,7 +76,7 @@ _DEFAULT_TEST_FILE_NAME_SUFFIXES = {
     "TestCases.java",
     "IntegrationTest.java",
     "IntegrationTests.java",
-    "IT.java"
+    "IT.java",
 }
 
 
@@ -545,6 +547,11 @@ def get_review_config():
     configured_test_file_name_suffixes = _to_pattern_set(
         _config_value("review", "test_file_name_suffixes")
     )
+    merged_test_file_name_suffixes = (
+        _to_pattern_set(_DEFAULT_TEST_FILE_NAME_SUFFIXES)
+        | configured_test_file_name_suffixes
+    )
+    merged_test_file_name_suffixes.discard("it.java")
 
     return {
         "response_state_file": _config_value("review", "response_state_file"),
@@ -635,10 +642,89 @@ def get_review_config():
         | configured_test_file_path_markers,
         "test_file_name_prefixes": set(_DEFAULT_TEST_FILE_NAME_PREFIXES)
         | configured_test_file_name_prefixes,
-        "test_file_name_suffixes": set(_DEFAULT_TEST_FILE_NAME_SUFFIXES)
-        | configured_test_file_name_suffixes,
+        "test_file_name_suffixes": merged_test_file_name_suffixes,
         "skip_extensions": _to_set(_config_value("review", "skip_extensions")),
         "skip_files": _to_set(_config_value("review", "skip_files")),
+        "react_enabled": _to_bool(
+            _config_value(
+                "review.react",
+                "enabled",
+                False,
+            ),
+            default=False,
+        ),
+        "react_max_draft_iterations": max(
+            1,
+            _to_int(
+                _config_value(
+                    "review.react",
+                    "max_draft_iterations",
+                    4,
+                ),
+                default=4,
+            )
+            or 4,
+        ),
+        "react_max_judge_iterations": max(
+            1,
+            _to_int(
+                _config_value(
+                    "review.react",
+                    "max_judge_iterations",
+                    3,
+                ),
+                default=3,
+            )
+            or 3,
+        ),
+        "react_max_tool_calls_per_agent": max(
+            1,
+            _to_int(
+                _config_value(
+                    "review.react",
+                    "max_tool_calls_per_agent",
+                    8,
+                ),
+                default=8,
+            )
+            or 8,
+        ),
+        "react_max_tool_result_chars": max(
+            200,
+            _to_int(
+                _config_value(
+                    "review.react",
+                    "max_tool_result_chars",
+                    12000,
+                ),
+                default=12000,
+            )
+            or 12000,
+        ),
+        "react_default_include_changed_files": _to_bool(
+            _config_value(
+                "review.react",
+                "default_include_changed_files",
+                True,
+            ),
+            default=True,
+        ),
+        "react_allow_judge_tool_retrieval": _to_bool(
+            _config_value(
+                "review.react",
+                "allow_judge_tool_retrieval",
+                True,
+            ),
+            default=True,
+        ),
+        "react_lazy_repository_context": _to_bool(
+            _config_value(
+                "review.react",
+                "lazy_repository_context",
+                True,
+            ),
+            default=True,
+        ),
     }
 
 
@@ -672,7 +758,9 @@ def get_refine_config():
 
 def get_llm_api_config(overrides=None):
     model_config = get_model_config(overrides)
-    proxy_url = _resolve_toml_value(overrides, "llm_api_proxy_url", "llm_api", "proxy_url")
+    proxy_url = _resolve_toml_value(
+        overrides, "llm_api_proxy_url", "llm_api", "proxy_url"
+    )
     base_url = _resolve_toml_value(overrides, "llm_api_base_url", "llm_api", "base_url")
     api_key = _resolve_toml_value(overrides, "llm_api_key", "llm_api", "api_key")
 
@@ -754,7 +842,10 @@ def get_oauth2_config():
         "generate_code/openid generate_code/use",
     )
     if not llm_api_scope:
-        llm_api_scope = os.getenv("OAUTH2_TOKEN_LLM_API_SCOPE") or "generate_code/openid generate_code/use"
+        llm_api_scope = (
+            os.getenv("OAUTH2_TOKEN_LLM_API_SCOPE")
+            or "generate_code/openid generate_code/use"
+        )
 
     return {
         "token_url": _config_value_from_sections(("oauth2", "oauth"), "token_url"),

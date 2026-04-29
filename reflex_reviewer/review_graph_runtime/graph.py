@@ -86,6 +86,14 @@ def build_review_graph(
     response_state_file,
     response_state_ttl_days,
     model_endpoint,
+    react_enabled,
+    react_max_draft_iterations,
+    react_max_judge_iterations,
+    react_max_tool_calls_per_agent,
+    react_max_tool_result_chars,
+    react_allow_judge_tool_retrieval,
+    react_lazy_repository_context,
+    react_default_include_changed_files,
 ):
     nodes = ReviewGraphNodes(
         resolve_runtime_settings=resolve_runtime_settings,
@@ -119,16 +127,37 @@ def build_review_graph(
         post_inline_comment=post_inline_comment,
         upsert_summary_comment=upsert_summary_comment,
         model_endpoint=model_endpoint,
+        react_enabled=react_enabled,
+        react_lazy_repository_context=react_lazy_repository_context,
+        react_default_include_changed_files=react_default_include_changed_files,
     )
     agents = ReviewGraphAgents(
         get_review_model_completion=get_review_model_completion,
         parse_review_payload=parse_review_payload,
         extract_previous_response_id=extract_previous_response_id,
         build_judge_prompt_user_content=build_judge_prompt_user_content,
+        build_repo_map_for_changed_files=build_repo_map_for_changed_files,
+        retrieve_related_files_context=retrieve_related_files_context,
+        retrieve_bounded_code_search_context=retrieve_bounded_code_search_context,
+        compose_repository_context_bundle=compose_repository_context_bundle,
+        max_repo_map_files=max_repo_map_files,
+        max_repo_map_chars=max_repo_map_chars,
+        max_related_files=max_related_files,
+        max_related_files_chars=max_related_files_chars,
+        max_code_search_results=max_code_search_results,
+        max_code_search_chars=max_code_search_chars,
+        max_code_search_query_terms=max_code_search_query_terms,
+        repository_ignore_directories=repository_ignore_directories,
         response_state_store_cls=response_state_store_cls,
         response_state_file=response_state_file,
         response_state_ttl_days=response_state_ttl_days,
         model_endpoint=model_endpoint,
+        react_enabled=react_enabled,
+        react_max_draft_iterations=react_max_draft_iterations,
+        react_max_judge_iterations=react_max_judge_iterations,
+        react_max_tool_calls_per_agent=react_max_tool_calls_per_agent,
+        react_max_tool_result_chars=react_max_tool_result_chars,
+        react_allow_judge_tool_retrieval=react_allow_judge_tool_retrieval,
     )
 
     nodes_in_order = [
@@ -232,6 +261,14 @@ def execute_review_graph(
     response_state_file,
     response_state_ttl_days,
     model_endpoint,
+    react_enabled,
+    react_max_draft_iterations,
+    react_max_judge_iterations,
+    react_max_tool_calls_per_agent,
+    react_max_tool_result_chars,
+    react_allow_judge_tool_retrieval,
+    react_lazy_repository_context,
+    react_default_include_changed_files,
 ):
     pr_id = (
         initial_state.get("pr_id")
@@ -282,6 +319,14 @@ def execute_review_graph(
         response_state_file=response_state_file,
         response_state_ttl_days=response_state_ttl_days,
         model_endpoint=model_endpoint,
+        react_enabled=react_enabled,
+        react_max_draft_iterations=react_max_draft_iterations,
+        react_max_judge_iterations=react_max_judge_iterations,
+        react_max_tool_calls_per_agent=react_max_tool_calls_per_agent,
+        react_max_tool_result_chars=react_max_tool_result_chars,
+        react_allow_judge_tool_retrieval=react_allow_judge_tool_retrieval,
+        react_lazy_repository_context=react_lazy_repository_context,
+        react_default_include_changed_files=react_default_include_changed_files,
     )
     result = review_graph.invoke(initial_state)
     logger.info(

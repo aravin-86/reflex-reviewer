@@ -97,6 +97,9 @@ class ReviewGraphNodes:
         post_inline_comment,
         upsert_summary_comment,
         model_endpoint,
+        react_enabled,
+        react_lazy_repository_context,
+        react_default_include_changed_files,
     ):
         """Store all injected collaborators, limits, and prompt locations for graph nodes."""
         self._resolve_runtime_settings = resolve_runtime_settings
@@ -136,6 +139,11 @@ class ReviewGraphNodes:
         self._post_inline_comment = post_inline_comment
         self._upsert_summary_comment = upsert_summary_comment
         self._model_endpoint = str(model_endpoint or "responses").strip().lower()
+        self._react_enabled = bool(react_enabled)
+        self._react_lazy_repository_context = bool(react_lazy_repository_context)
+        self._react_default_include_changed_files = bool(
+            react_default_include_changed_files
+        )
         self._prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
 
     @staticmethod
@@ -216,6 +224,31 @@ class ReviewGraphNodes:
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _build_changed_files_context(changed_file_paths, max_items=100, max_chars=6000):
+        normalized_paths = [
+            str(path or "").strip().replace("\\", "/")
+            for path in list(changed_file_paths or [])
+            if str(path or "").strip()
+        ]
+        unique_paths = []
+        seen = set()
+        for path in normalized_paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            unique_paths.append(path)
+            if len(unique_paths) >= max_items:
+                break
+
+        if not unique_paths:
+            return "No changed files identified from diff metadata."
+
+        payload = "\n".join(f"- {path}" for path in unique_paths)
+        if len(payload) <= max_chars:
+            return payload
+        return payload[: max_chars - 18].rstrip() + "\n... [truncated]"
 
     def _resolve_comment_severity_with_context(self, severity, file_path=None, comment_text=None):
         """Resolve severity with best-effort compatibility for resolver signatures."""
@@ -588,8 +621,14 @@ class ReviewGraphNodes:
             state.get("raw_diff_data", {}),
             max_files=self._max_changed_files,
         )
+        changed_files_context = self._build_changed_files_context(changed_file_paths)
         result: ReviewGraphState = {
             "changed_file_paths": changed_file_paths,
+            "changed_files_context": (
+                changed_files_context
+                if self._react_default_include_changed_files
+                else "Changed-file bootstrap context disabled by configuration."
+            ),
         }
         self._log_node_complete(
             node_name,
@@ -605,6 +644,14 @@ class ReviewGraphNodes:
             return cast(ReviewGraphState, {})
 
         self._log_node_start(node_name, state)
+        if self._react_enabled and self._react_lazy_repository_context:
+            deferred_repo_map = (
+                "Repository map unavailable during initial prompt bootstrap. "
+                "Retrieval deferred for lazy ReAct context; use internal tools when additional repository evidence is required."
+            )
+            self._log_node_complete(node_name, state, status="deferred")
+            return cast(ReviewGraphState, {"repo_map": deferred_repo_map})
+
         repo_map = self._build_repo_map_for_changed_files(
             state.get("repository_path"),
             state.get("changed_file_paths", []),
@@ -631,6 +678,17 @@ class ReviewGraphNodes:
             return cast(ReviewGraphState, {})
 
         self._log_node_start(node_name, state)
+        if self._react_enabled and self._react_lazy_repository_context:
+            deferred_related_files = (
+                "Related-file retrieval unavailable during initial prompt bootstrap. "
+                "Deferred for lazy ReAct context; use internal tools when additional repository evidence is required."
+            )
+            self._log_node_complete(node_name, state, status="deferred")
+            return cast(
+                ReviewGraphState,
+                {"related_files_context": deferred_related_files},
+            )
+
         related_files_context = self._retrieve_related_files_context(
             state.get("repository_path"),
             state.get("changed_file_paths", []),
@@ -665,6 +723,17 @@ class ReviewGraphNodes:
             return cast(ReviewGraphState, {})
 
         self._log_node_start(node_name, state)
+        if self._react_enabled and self._react_lazy_repository_context:
+            deferred_code_search = (
+                "Code search unavailable during initial prompt bootstrap. "
+                "Retrieval deferred for lazy ReAct context; use internal tools when additional repository evidence is required."
+            )
+            self._log_node_complete(node_name, state, status="deferred")
+            return cast(
+                ReviewGraphState,
+                {"code_search_context": deferred_code_search},
+            )
+
         code_search_context = self._retrieve_bounded_code_search_context(
             state.get("repository_path"),
             state.get("changed_file_paths", []),
@@ -801,6 +870,13 @@ class ReviewGraphNodes:
         existing_feedback = str(
             self._get_required_state_value(state, "existing_feedback", "")
         )
+        changed_files_context = str(
+            self._get_required_state_value(
+                state,
+                "changed_files_context",
+                "No changed-file context available.",
+            )
+        )
         repository_context_bundle = state.get("repository_context_bundle")
         if not isinstance(repository_context_bundle, dict):
             repository_context_bundle = {}
@@ -837,6 +913,7 @@ class ReviewGraphNodes:
                 .replace("{{PR_DESCRIPTION}}", pr_description)
                 .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
                 .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
+                .replace("{{CHANGED_FILES_CONTEXT}}", changed_files_context)
                 .replace("{{REPOSITORY_MAP}}", repo_map)
                 .replace("{{RELATED_FILES_CONTEXT}}", related_files_context)
                 .replace("{{CODE_SEARCH_CONTEXT}}", code_search_context)

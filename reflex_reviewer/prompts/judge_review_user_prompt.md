@@ -19,6 +19,9 @@ Do **not** keep or emit comments that are semantically the same unless there is 
 When an existing bot comment includes `file=` and `line=` metadata and covers the same issue, treat same-line rephrasings as duplicates and remove them.
 {{EXISTING_ROOT_COMMENTS}}
 
+## Changed Files (bootstrap context)
+{{CHANGED_FILES_CONTEXT}}
+
 ## Repository Map (changed files)
 {{REPOSITORY_MAP}}
 

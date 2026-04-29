@@ -39,6 +39,28 @@
 - Runtime performance and reliability depend on external API and VCS availability.
 
 ## Most recent change log entry
+- Implemented ReAct-style draft/judge orchestration with internal monologue control blocks and bounded internal retrieval tools:
+  - updated runtime agents in `reflex_reviewer/review_graph_runtime/agents.py` to support iterative `tool_call` / `final_review` action loops,
+  - added bounded internal tools (`get_changed_files`, `get_repo_map`, `get_related_files`, `search_code`, `get_repository_context_bundle`),
+  - added safe iteration/tool-call/tool-result caps and fallback behavior when model payloads are malformed.
+- Implemented lazy repository-context bootstrap strategy for ReAct:
+  - updated deterministic context nodes in `reflex_reviewer/review_graph_runtime/nodes.py` to defer heavy repository retrieval when lazy mode is enabled,
+  - initial prompts now include changed-files bootstrap context and explicit deferred/unavailable placeholders,
+  - heavy repository context is fetched only on-demand via agent tool calls.
+- Added ReAct runtime configuration surface in `reflex_reviewer.toml` and `reflex_reviewer/config.py` under `[review.react]`:
+  - `enabled`, `max_draft_iterations`, `max_judge_iterations`, `max_tool_calls_per_agent`,
+  - `max_tool_result_chars`, `default_include_changed_files`, `allow_judge_tool_retrieval`, `lazy_repository_context`.
+- Added/updated ReAct state tracking and tests:
+  - updated `reflex_reviewer/review_graph_runtime/state.py` with draft/judge iteration + tool trace fields,
+  - added `tests/test_review_graph_runtime_agents.py`,
+  - updated `tests/test_review_graph_runtime_nodes.py` and config/runtime test expectations.
+- Documentation updates:
+  - updated `README.md` configuration and behavior notes for `[review.react]` and lazy retrieval behavior,
+  - updated `memory-bank/activeContext.md` with ReAct design decisions and verification notes.
+- Verification:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_nodes tests.test_review_graph_runtime_agents tests.test_review_model_api tests.test_config_runtime_overrides`
+  - Result: `Ran 55 tests ... OK`.
+
 - Expanded test-file severity coercion to include Java test conventions across review/distill paths:
   - updated runtime severity resolvers:
     - `reflex_reviewer/review.py` (`_is_test_file_path`)

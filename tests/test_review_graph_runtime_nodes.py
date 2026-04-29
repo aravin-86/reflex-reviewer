@@ -59,6 +59,9 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
             post_inline_comment=_noop,
             upsert_summary_comment=_noop,
             model_endpoint="responses",
+            react_enabled=False,
+            react_lazy_repository_context=False,
+            react_default_include_changed_files=True,
         )
 
     def test_compose_repository_context_logs_used_and_configured_totals(self):

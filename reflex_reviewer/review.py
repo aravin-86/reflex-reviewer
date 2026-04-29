@@ -56,6 +56,22 @@ MAX_CODE_SEARCH_RESULTS = review_config["max_code_search_results"]
 MAX_CODE_SEARCH_CHARS = review_config["max_code_search_chars"]
 MAX_CODE_SEARCH_QUERY_TERMS = review_config["max_code_search_query_terms"]
 REPOSITORY_IGNORE_DIRECTORIES = review_config["repository_ignore_directories"]
+REACT_ENABLED = bool(review_config.get("react_enabled"))
+REACT_MAX_DRAFT_ITERATIONS = int(review_config.get("react_max_draft_iterations") or 4)
+REACT_MAX_JUDGE_ITERATIONS = int(review_config.get("react_max_judge_iterations") or 3)
+REACT_MAX_TOOL_CALLS_PER_AGENT = int(
+    review_config.get("react_max_tool_calls_per_agent") or 8
+)
+REACT_MAX_TOOL_RESULT_CHARS = int(review_config.get("react_max_tool_result_chars") or 12000)
+REACT_DEFAULT_INCLUDE_CHANGED_FILES = bool(
+    review_config.get("react_default_include_changed_files", True)
+)
+REACT_ALLOW_JUDGE_TOOL_RETRIEVAL = bool(
+    review_config.get("react_allow_judge_tool_retrieval", True)
+)
+REACT_LAZY_REPOSITORY_CONTEXT = bool(
+    review_config.get("react_lazy_repository_context", True)
+)
 TEST_FILE_PATH_MARKERS = {
     str(marker or "").strip().replace("\\", "/").strip("/").lower()
     for marker in review_config.get("test_file_path_markers", set())
@@ -885,8 +901,14 @@ def _build_judge_prompt_user_content(
     existing_feedback,
     draft_review_data,
     repository_context_bundle,
+    changed_files_context="",
 ):
     repository_context = repository_context_bundle or {}
+    changed_files_section = str(
+        changed_files_context
+        or repository_context.get("changed_files_context")
+        or "No changed-file context available."
+    )
     repo_map = str(repository_context.get("repo_map") or "No repository map context available.")
     related_files_context = str(
         repository_context.get("related_files_context")
@@ -903,6 +925,7 @@ def _build_judge_prompt_user_content(
         .replace("{{PR_DESCRIPTION}}", pr_description)
         .replace("{{EXISTING_ROOT_COMMENTS}}", existing_feedback)
         .replace("{{EXISTING_FEEDBACK}}", existing_feedback)
+        .replace("{{CHANGED_FILES_CONTEXT}}", changed_files_section)
         .replace("{{REPOSITORY_MAP}}", repo_map)
         .replace("{{RELATED_FILES_CONTEXT}}", related_files_context)
         .replace("{{CODE_SEARCH_CONTEXT}}", code_search_context)
@@ -989,6 +1012,14 @@ def run(
             response_state_file=RESPONSE_STATE_FILE,
             response_state_ttl_days=RESPONSE_STATE_TTL_DAYS,
             model_endpoint=MODEL_ENDPOINT,
+            react_enabled=REACT_ENABLED,
+            react_max_draft_iterations=REACT_MAX_DRAFT_ITERATIONS,
+            react_max_judge_iterations=REACT_MAX_JUDGE_ITERATIONS,
+            react_max_tool_calls_per_agent=REACT_MAX_TOOL_CALLS_PER_AGENT,
+            react_max_tool_result_chars=REACT_MAX_TOOL_RESULT_CHARS,
+            react_allow_judge_tool_retrieval=REACT_ALLOW_JUDGE_TOOL_RETRIEVAL,
+            react_lazy_repository_context=REACT_LAZY_REPOSITORY_CONTEXT,
+            react_default_include_changed_files=REACT_DEFAULT_INCLUDE_CHANGED_FILES,
         )
 
     except Exception:

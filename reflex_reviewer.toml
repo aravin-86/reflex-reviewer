@@ -86,6 +86,16 @@ max_code_search_results = 500
 max_code_search_chars = 150000
 max_code_search_query_terms = 50
 
+[review.react]
+enabled = "${REVIEW_REACT_ENABLED|-true}"
+max_draft_iterations = "${REVIEW_REACT_MAX_DRAFT_ITERATIONS|-4}"
+max_judge_iterations = "${REVIEW_REACT_MAX_JUDGE_ITERATIONS|-3}"
+max_tool_calls_per_agent = "${REVIEW_REACT_MAX_TOOL_CALLS_PER_AGENT|-8}"
+max_tool_result_chars = "${REVIEW_REACT_MAX_TOOL_RESULT_CHARS|-12000}"
+default_include_changed_files = "${REVIEW_REACT_DEFAULT_INCLUDE_CHANGED_FILES|-true}"
+allow_judge_tool_retrieval = "${REVIEW_REACT_ALLOW_JUDGE_TOOL_RETRIEVAL|-true}"
+lazy_repository_context = "${REVIEW_REACT_LAZY_REPOSITORY_CONTEXT|-true}"
+
 [distill]
 activities_fetch_limit = 1000
 max_llm_threads = 20
