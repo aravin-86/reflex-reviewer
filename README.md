@@ -405,12 +405,16 @@ LLM auth options:
 
 Useful optional variables:
 - `LLM_API_PROXY_URL`
+- `REPOSITORY_PATH` (local checkout path used for repository-aware review context)
+- `REPOSITORY_IGNORE_DIRECTORIES` (optional comma-separated additional ignore directories for repository code search)
 - `PYTHON_BIN`
 - `RR_RUNNER_VENV_DIR`
 - `RR_PACKAGE_INSTALL_TARGET`
 - `RR_PACKAGE_INDEX_URL`
 - `RR_PACKAGE_EXTRA_INDEX_URL`
 - `RR_FORCE_REBUILD_VENV`
+
+To enable repository-aware review in CI/launcher runs, set `REPOSITORY_PATH` to the checked-out repository path used by your job. Optionally set `REPOSITORY_IGNORE_DIRECTORIES` to add extra directories to skip during repository code-search scanning.
 
 Example:
 
@@ -424,6 +428,10 @@ export VCS_BASE_URL="<VCS_BASE_URL>"
 export VCS_PROJECT_KEY="<VCS_PROJECT_KEY>"
 export VCS_REPO_SLUG="<VCS_REPO_SLUG>"
 export VCS_TOKEN="<VCS_TOKEN>"
+
+# Repository-aware review context (optional)
+export REPOSITORY_PATH="/absolute/path/to/checked-out-repository"
+export REPOSITORY_IGNORE_DIRECTORIES="target,build,.cache"
 
 export LLM_API_KEY="<LLM_API_KEY>"
 export PR_ID="123"
