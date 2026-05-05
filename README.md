@@ -159,6 +159,7 @@ Review behavior worth knowing:
 flowchart TB
     classDef llmAgent fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,font-size:18px;
     classDef deterministic fill:#e1f5fe,stroke:#01579b,stroke-width:2px,font-size:18px;
+    classDef reactMeta fill:#fff8e1,stroke:#ef6c00,stroke-width:2px,font-size:16px;
     classDef terminal fill:#eceff1,stroke:#546e7a,stroke-width:2px,font-size:18px;
 
     subgraph ctx["Repository Context"]
@@ -171,7 +172,10 @@ flowchart TB
 
     subgraph infer["Prompting and Review Agents"]
         direction LR
-        compose_repository_context["compose_repository_context"] --> prepare_review_inputs["prepare_review_inputs"] --> draft_reviewer["draft_reviewer<br/>(Draft Reviewer)"] --> finding_normalizer["finding_normalizer"] --> evidence_judge["evidence_judge<br/>(Evidence Judge)"]
+        compose_repository_context["compose_repository_context"] --> prepare_review_inputs["prepare_review_inputs"] --> draft_reviewer["draft_reviewer<br/>(Draft ReAct Agent)"] --> finding_normalizer["finding_normalizer"] --> evidence_judge["evidence_judge<br/>(Judge ReAct Agent)"]
+        react_loop["Internal ReAct loop<br/>Reason → Act(tool_call) → Observe<br/>bounded by iteration + tool-call limits"]
+        react_tools["Bounded internal retrieval tools<br/>get_changed_files · get_repo_map · get_related_files · search_code · get_repository_context_bundle"]
+        lazy_note["Lazy repository-context mode:<br/>initial prompt uses changed-files bootstrap,<br/>heavier repository evidence can be fetched on demand via tools"]
     end
 
     subgraph publish["Publishing and Guardrails"]
@@ -183,22 +187,32 @@ flowchart TB
     retrieve_related_files --> compose_repository_context
     retrieve_code_search_context --> compose_repository_context
     evidence_judge --> summary_builder
+    draft_reviewer -.uses.-> react_loop
+    evidence_judge -.uses.-> react_loop
+    react_loop --> react_tools
+    react_tools -.supports.-> draft_reviewer
+    react_tools -.supports.-> evidence_judge
+    prepare_review_inputs -.bootstrap context.-> lazy_note
 
     class draft_reviewer,evidence_judge llmAgent;
     class fetch_pr_context,extract_changed_files,build_repo_map,retrieve_related_files,retrieve_code_search_context,compose_repository_context,prepare_review_inputs,finding_normalizer,summary_builder,anchor_resolver,policy_guard deterministic;
+    class react_loop,react_tools,lazy_note reactMeta;
     class publish_review terminal;
 
     linkStyle default stroke:#01579b,stroke-width:3px;
 ```
 
 Diagram legend:
-- Purple nodes are **LLM agent nodes**.
+- Purple nodes are **bounded ReAct LLM agent nodes** (`draft_reviewer`, `evidence_judge`).
 - Blue nodes are **deterministic orchestration, retrieval, or guardrail nodes**.
+- Amber nodes annotate **internal ReAct control/tooling behavior** and **lazy repository-context bootstrap** semantics.
 - Gray terminal node is the final review publication stage.
 
 Key grouped stages:
 - **Context nodes:** `fetch_pr_context`, `extract_changed_files`, `build_repo_map`, `retrieve_related_files`, `retrieve_code_search_context`
-- **Inference nodes:** `compose_repository_context`, `prepare_review_inputs`, `draft_reviewer`, `finding_normalizer`, `evidence_judge`
+- **Inference nodes:** `compose_repository_context`, `prepare_review_inputs`, `draft_reviewer` (bounded ReAct), `finding_normalizer`, `evidence_judge` (bounded ReAct)
+- **Internal ReAct retrieval tools:** `get_changed_files`, `get_repo_map`, `get_related_files`, `search_code`, `get_repository_context_bundle`
+- **Lazy context behavior:** changed-files context is available at bootstrap, while heavier repository context can be deferred and fetched on demand through bounded internal tool calls.
 - **Publishing nodes:** `summary_builder`, `anchor_resolver`, `policy_guard`, `publish_review`
 
 ### 2.4 Distill and refine
