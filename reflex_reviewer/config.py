@@ -709,6 +709,14 @@ def get_review_config():
             ),
             default=True,
         ),
+        "react_require_initial_repository_tool": _to_bool(
+            _config_value(
+                "review.react",
+                "require_initial_repository_tool",
+                True,
+            ),
+            default=True,
+        ),
         "react_allow_judge_tool_retrieval": _to_bool(
             _config_value(
                 "review.react",

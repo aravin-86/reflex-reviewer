@@ -6,6 +6,10 @@ from typing import Optional, cast
 import requests  # type: ignore[reportMissingImports,reportMissingModuleSource]
 
 from .state import ReviewGraphState
+from reflex_reviewer.review_output_contracts import (
+    NON_REACT_OUTPUT_CONTRACT,
+    REACT_OUTPUT_CONTRACT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +222,11 @@ class ReviewGraphNodes:
             safe_chars = 0
         return (safe_chars + 3) // 4
 
+    def _resolve_output_contract(self):
+        if self._react_enabled:
+            return REACT_OUTPUT_CONTRACT
+        return NON_REACT_OUTPUT_CONTRACT
+
     @staticmethod
     def _safe_int(value, default=0):
         try:
@@ -367,6 +376,45 @@ class ReviewGraphNodes:
         return anchor_path, anchor_line
 
     @classmethod
+    def _collect_reply_texts_by_parent_comment_id(cls, activities):
+        replies_by_parent_id = {}
+
+        for activity in activities or []:
+            if not isinstance(activity, dict):
+                continue
+            if activity.get("action") != "COMMENTED":
+                continue
+
+            comment = activity.get("comment")
+            if not isinstance(comment, dict):
+                continue
+
+            text = str(comment.get("text") or "").strip()
+            if text and not cls._is_root_comment(comment):
+                parent = comment.get("parent")
+                parent_id = ""
+                if isinstance(parent, dict):
+                    parent_id = str(parent.get("id") or "").strip()
+                if parent_id:
+                    replies_by_parent_id.setdefault(parent_id, []).append(text)
+
+            root_comment_id = str(comment.get("id") or "").strip()
+            if not root_comment_id:
+                continue
+            embedded_replies = comment.get("comments")
+            if not isinstance(embedded_replies, list):
+                continue
+            for embedded_reply in embedded_replies:
+                if not isinstance(embedded_reply, dict):
+                    continue
+                reply_text = str(embedded_reply.get("text") or "").strip()
+                if not reply_text:
+                    continue
+                replies_by_parent_id.setdefault(root_comment_id, []).append(reply_text)
+
+        return replies_by_parent_id
+
+    @classmethod
     def _normalize_comment_text_for_fingerprint(cls, text):
         normalized = cls._strip_bot_signature(text).lower()
         normalized = normalized.replace("->", " ").replace("=>", " ")
@@ -421,6 +469,7 @@ class ReviewGraphNodes:
     def _extract_existing_bot_inline_comments(self, activities, team_name):
         extracted_comments = []
         seen = set()
+        replies_by_parent_id = self._collect_reply_texts_by_parent_comment_id(activities)
 
         for activity in activities or []:
             if not isinstance(activity, dict):
@@ -447,8 +496,6 @@ class ReviewGraphNodes:
             )
             normalized_path = self._normalize_repo_path(anchor_path)
             normalized_line = self._safe_int(anchor_line, default=0)
-            if not normalized_path or normalized_line <= 0:
-                continue
 
             severity, inline_body = self._parse_inline_comment_payload(raw_text)
             normalized_text = self._strip_bot_signature(inline_body or raw_text)
@@ -467,13 +514,22 @@ class ReviewGraphNodes:
                 continue
             seen.add(dedupe_key)
 
+            comment_id = str(comment.get("id") or "").strip()
+            reply_texts = replies_by_parent_id.get(comment_id, []) if comment_id else []
+
             extracted_comments.append(
                 {
-                    "path": anchor_path,
+                    "comment_id": comment_id,
+                    "path": str(anchor_path or "").strip(),
                     "line": normalized_line,
                     "severity": severity,
                     "text": normalized_text,
                     "fingerprint": fingerprint,
+                    "reply_texts": [
+                        str(reply_text).strip()
+                        for reply_text in reply_texts
+                        if str(reply_text).strip()
+                    ],
                 }
             )
 
@@ -900,7 +956,11 @@ class ReviewGraphNodes:
         with open(
             self._prompts_dir / "review_system_prompt.md", "r", encoding="utf-8"
         ) as f:
-            draft_sys_p = f.read().replace("{{TEAM_NAME}}", team_name)
+            draft_sys_p = (
+                f.read()
+                .replace("{{TEAM_NAME}}", team_name)
+                .replace("{{OUTPUT_CONTRACT}}", self._resolve_output_contract())
+            )
 
         with open(
             self._prompts_dir / "review_user_prompt.md", "r", encoding="utf-8"
@@ -917,6 +977,7 @@ class ReviewGraphNodes:
                 .replace("{{REPOSITORY_MAP}}", repo_map)
                 .replace("{{RELATED_FILES_CONTEXT}}", related_files_context)
                 .replace("{{CODE_SEARCH_CONTEXT}}", code_search_context)
+                .replace("{{OUTPUT_CONTRACT}}", self._resolve_output_contract())
             )
 
         result: ReviewGraphState = {
@@ -1079,6 +1140,7 @@ class ReviewGraphNodes:
         guarded_comments = []
         accepted_comments_by_anchor = {}
         duplicate_suppressed_count = 0
+        existing_duplicate_suppressed_count = 0
         for comment in state.get("resolved_comments", []):
             if not isinstance(comment, dict):
                 continue
@@ -1094,14 +1156,18 @@ class ReviewGraphNodes:
             if anchor_key:
                 existing_anchor_texts = existing_comments_by_anchor.get(anchor_key, [])
                 accepted_anchor_texts = accepted_comments_by_anchor.get(anchor_key, [])
-                if any(
+                suppressed_due_to_existing = any(
                     self._comments_are_near_duplicates(comment_text, existing_text)
                     for existing_text in existing_anchor_texts
-                ) or any(
+                )
+                suppressed_due_to_current_batch = any(
                     self._comments_are_near_duplicates(comment_text, accepted_text)
                     for accepted_text in accepted_anchor_texts
-                ):
+                )
+                if suppressed_due_to_existing or suppressed_due_to_current_batch:
                     duplicate_suppressed_count += 1
+                    if suppressed_due_to_existing:
+                        existing_duplicate_suppressed_count += 1
                     continue
 
             guarded_comments.append(
@@ -1124,9 +1190,22 @@ class ReviewGraphNodes:
         )
         skipped_inline_count += duplicate_suppressed_count
 
+        normalized_verdict = str(state.get("verdict") or "CHANGES_SUGGESTED").strip().upper()
+        normalized_verdict = normalized_verdict.replace(" ", "_")
+        should_force_changes_suggested = normalized_verdict == "APPROVED" and (
+            bool(guarded_comments) or existing_duplicate_suppressed_count > 0
+        )
+        verdict = (
+            "CHANGES_SUGGESTED"
+            if should_force_changes_suggested
+            else str(state.get("verdict") or "CHANGES_SUGGESTED")
+        )
+
         result: ReviewGraphState = {
             "resolved_comments": guarded_comments,
             "skipped_inline_count": skipped_inline_count,
+            "existing_duplicate_suppressed_count": existing_duplicate_suppressed_count,
+            "verdict": verdict,
         }
         self._log_node_complete(
             node_name,
@@ -1134,7 +1213,9 @@ class ReviewGraphNodes:
             input_comments=len(state.get("resolved_comments", [])),
             guarded_comments=len(guarded_comments),
             duplicate_suppressed=duplicate_suppressed_count,
+            existing_duplicate_suppressed=existing_duplicate_suppressed_count,
             skipped_inline_count=skipped_inline_count,
+            verdict=verdict,
         )
         return result
 

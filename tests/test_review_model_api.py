@@ -394,7 +394,7 @@ Smoke tested in DEV"""
     @patch("reflex_reviewer.review.get_review_model_completion")
     @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
     @patch("reflex_reviewer.review.get_vcs_client")
-    def test_run_policy_guard_suppresses_same_anchor_near_duplicate_and_posts_summary(
+    def test_run_policy_guard_agent_suppresses_same_anchor_duplicate_and_forces_changes_suggested_summary(
         self,
         mock_get_vcs_client,
         mock_convert_diff,
@@ -422,6 +422,14 @@ Smoke tested in DEV"""
                         "srcLine": "10",
                     },
                 },
+            },
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 701,
+                    "parent": {"id": 700},
+                    "text": "This still fails edge cases.",
+                },
             }
         ]
         vcs_client.post_comment.return_value = {"id": 1}
@@ -448,6 +456,15 @@ Smoke tested in DEV"""
         mock_get_review_model_completion.side_effect = [
             {"id": "draft_1"},
             {"id": "judge_1"},
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"results":[{"comment_id":"700","sentiment":"NOT_REJECTED"}]}'
+                        }
+                    }
+                ]
+            },
         ]
         mock_parse_review_payload.side_effect = [
             {
@@ -457,7 +474,7 @@ Smoke tested in DEV"""
                 "comments": [],
             },
             {
-                "verdict": "CHANGES_SUGGESTED",
+                "verdict": "APPROVED",
                 "summary": "final summary",
                 "checklist": [],
                 "comments": [
@@ -518,7 +535,98 @@ Smoke tested in DEV"""
         self.assertNotIn("anchor", summary_call.kwargs)
         summary_body = summary_call.args[1]
         self.assertIn("**Recommendation:** `Changes Suggested`", summary_body)
-        self.assertIn("**Review Summary:** final summary", summary_body)
+        self.assertIn("**Review Summary:** Prior bot feedback still appears applicable", summary_body)
+        self.assertIn("Address existing bot comment: a/src/service.py:10", summary_body)
+
+    @patch("reflex_reviewer.review.parse_review_payload")
+    @patch("reflex_reviewer.review.get_review_model_completion")
+    @patch("reflex_reviewer.review.convert_to_unified_diff_and_anchor_index")
+    @patch("reflex_reviewer.review.get_vcs_client")
+    def test_run_forces_changes_suggested_when_existing_bot_comment_remains_without_new_findings(
+        self,
+        mock_get_vcs_client,
+        mock_convert_diff,
+        mock_get_review_model_completion,
+        mock_parse_review_payload,
+    ):
+        vcs_client = Mock()
+        vcs_client.get_vcs_config.return_value = {
+            "project": "PRODUCT",
+            "repo_slug": "control-plane",
+            "pr_id": 123,
+        }
+        vcs_client.fetch_pr_diff.return_value = {
+            "diffs": [{"destination": {"toString": "src/service.py"}, "hunks": []}]
+        }
+        vcs_client.fetch_pr_metadata.return_value = ("title", "description")
+        vcs_client.fetch_pr_activities.return_value = [
+            {
+                "action": "COMMENTED",
+                "comment": {
+                    "id": 900,
+                    "text": "[MAJOR] Null handling still needs a guard clause.\r\n\r\n### #TEAM-ONE",
+                    "anchor": {
+                        "srcPath": {"toString": "a/src/service.py"},
+                        "srcLine": "12",
+                    },
+                },
+            }
+        ]
+        vcs_client.post_comment.return_value = {"id": 1}
+        mock_get_vcs_client.return_value = vcs_client
+
+        mock_convert_diff.return_value = (
+            "diff",
+            {
+                "by_anchor_id": {
+                    "F1-L12": {
+                        "anchor": {
+                            "path": "src/service.py",
+                            "line": 12,
+                            "lineType": "ADDED",
+                            "fileType": "TO",
+                        },
+                        "path": "src/service.py",
+                        "line": 12,
+                    }
+                }
+            },
+        )
+
+        mock_get_review_model_completion.side_effect = [
+            {"id": "draft_2"},
+            {"id": "judge_2"},
+        ]
+        mock_parse_review_payload.side_effect = [
+            {
+                "verdict": "CHANGES_SUGGESTED",
+                "summary": "draft",
+                "checklist": [],
+                "comments": [],
+            },
+            {
+                "verdict": "APPROVED",
+                "summary": "final summary",
+                "checklist": [],
+                "comments": [],
+            },
+        ]
+
+        with patch.object(review_module, "MODEL_ENDPOINT", "chat_completions"):
+            review_module.run(
+                vcs_type="bitbucket",
+                pr_id=123,
+                team_name="TEAM-ONE",
+                draft_model="oca/gpt-4.1",
+                judge_model="oca/gpt-4.1",
+            )
+
+        self.assertEqual(vcs_client.post_comment.call_count, 1)
+        summary_call = vcs_client.post_comment.call_args_list[0]
+        summary_body = summary_call.args[1]
+        self.assertIn("**Recommendation:** `Changes Suggested`", summary_body)
+        self.assertIn("**Review Summary:** Prior bot feedback still appears applicable", summary_body)
+        self.assertIn("Address existing bot comment: a/src/service.py:12", summary_body)
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")
@@ -579,10 +687,11 @@ Smoke tested in DEV"""
         kwargs = mock_get_review_model_completion.call_args_list[0].kwargs
         self.assertIsNone(kwargs.get("previous_response_id"))
         self.assertEqual(kwargs.get("store_response"), True)
-        state_store.set_previous_response_id.assert_called_once_with(
+        state_store.set_previous_response_id.assert_called_with(
             "PRODUCT:control-plane:pr:123",
             "resp_new",
         )
+        self.assertGreaterEqual(state_store.set_previous_response_id.call_count, 1)
 
     @patch("reflex_reviewer.review.parse_review_payload")
     @patch("reflex_reviewer.review.get_review_model_completion")
@@ -643,10 +752,11 @@ Smoke tested in DEV"""
         kwargs = mock_get_review_model_completion.call_args_list[0].kwargs
         self.assertEqual(kwargs.get("previous_response_id"), "resp_prev")
         self.assertEqual(kwargs.get("store_response"), False)
-        state_store.set_previous_response_id.assert_called_once_with(
+        state_store.set_previous_response_id.assert_called_with(
             "PRODUCT:control-plane:pr:123",
             "resp_latest",
         )
+        self.assertGreaterEqual(state_store.set_previous_response_id.call_count, 1)
 
 
 if __name__ == "__main__":

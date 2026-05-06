@@ -1,11 +1,17 @@
 import logging
+import json
+import re
 from pathlib import Path
-from typing import Dict, Tuple, cast
+from typing import Any, Dict, List, Tuple, cast
 
 from reflex_reviewer.llm.response_handler import (
     extract_content_from_non_stream_response,
     extract_content_from_stream_response,
     extract_json_from_content,
+)
+from reflex_reviewer.review_output_contracts import (
+    NON_REACT_OUTPUT_CONTRACT,
+    REACT_OUTPUT_CONTRACT,
 )
 
 from .state import ReviewGraphState
@@ -22,6 +28,51 @@ class ReviewGraphAgents:
         "checklist": [],
         "comments": [],
     }
+    _REPLY_SENTIMENT_REJECTED = "REJECTED"
+    _REPLY_SENTIMENT_NOT_REJECTED = "NOT_REJECTED"
+    _REPLY_SENTIMENT_UNSURE = "UNSURE"
+    _DEFAULT_OUTSTANDING_SUMMARY = (
+        "Prior bot feedback still appears applicable in the current diff. "
+        "Please address the existing inline comments before considering this ready."
+    )
+    _COMMENT_TOKEN_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "into",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+        "should",
+        "can",
+        "could",
+        "would",
+        "please",
+        "consider",
+        "change",
+        "changes",
+        "update",
+        "use",
+        "value",
+    }
+    _MIN_DUPLICATE_TOKEN_INTERSECTION = 2
+    _MIN_DUPLICATE_TOKEN_OVERLAP = 0.75
 
     def __init__(
         self,
@@ -34,6 +85,7 @@ class ReviewGraphAgents:
         retrieve_related_files_context,
         retrieve_bounded_code_search_context,
         compose_repository_context_bundle,
+        resolve_comment_severity,
         max_repo_map_files,
         max_repo_map_chars,
         max_related_files,
@@ -51,6 +103,7 @@ class ReviewGraphAgents:
         react_max_judge_iterations,
         react_max_tool_calls_per_agent,
         react_max_tool_result_chars,
+        react_require_initial_repository_tool,
         react_allow_judge_tool_retrieval,
     ):
         self._get_review_model_completion = get_review_model_completion
@@ -61,6 +114,7 @@ class ReviewGraphAgents:
         self._retrieve_related_files_context = retrieve_related_files_context
         self._retrieve_bounded_code_search_context = retrieve_bounded_code_search_context
         self._compose_repository_context_bundle = compose_repository_context_bundle
+        self._resolve_comment_severity = resolve_comment_severity
         self._max_repo_map_files = max_repo_map_files
         self._max_repo_map_chars = max_repo_map_chars
         self._max_related_files = max_related_files
@@ -80,6 +134,9 @@ class ReviewGraphAgents:
             1, int(react_max_tool_calls_per_agent or 1)
         )
         self._react_max_tool_result_chars = max(200, int(react_max_tool_result_chars or 200))
+        self._react_require_initial_repository_tool = bool(
+            react_require_initial_repository_tool
+        )
         self._react_allow_judge_tool_retrieval = bool(react_allow_judge_tool_retrieval)
         self._prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -186,6 +243,29 @@ class ReviewGraphAgents:
         return "\n".join(lines)
 
     @staticmethod
+    def _build_tool_observations_block(tool_trace):
+        if not tool_trace:
+            return "- None"
+
+        lines = []
+        for idx, trace in enumerate(tool_trace, start=1):
+            preview = str(trace.get("result_preview") or "").strip()
+            if not preview:
+                preview = "No tool output captured."
+            lines.append(
+                (
+                    "- Observation #{idx} ({tool}, {status}):\n"
+                    "  {preview}"
+                ).format(
+                    idx=idx,
+                    tool=trace.get("tool_name", "unknown"),
+                    status=trace.get("status", "unknown"),
+                    preview=preview.replace("\n", "\n  "),
+                )
+            )
+        return "\n".join(lines)
+
+    @staticmethod
     def _build_react_control_block(
         *,
         agent_name,
@@ -194,12 +274,19 @@ class ReviewGraphAgents:
         tool_calls,
         max_tool_calls,
         allow_tool_calls,
+        require_repository_tool_before_final,
         tool_trace,
+        tool_observations,
     ):
         tools_policy = (
             "You may request one tool call per response when more evidence is required."
             if allow_tool_calls
             else "Tool calls are disabled for this run; return final_review directly."
+        )
+        repository_tool_policy = (
+            "Before returning final_review, you must make at least one repository-evidence tool call (get_repo_map/get_related_files/search_code/get_repository_context_bundle) when those sections are deferred/unavailable in the prompt."
+            if require_repository_tool_before_final and allow_tool_calls
+            else "Repository-evidence tool calls are optional when evidence is already sufficient."
         )
         allowed_tools = "\n".join(
             [
@@ -215,14 +302,17 @@ class ReviewGraphAgents:
             "- Iteration: {iteration}/{max_iterations}\n"
             "- Tool calls used: {tool_calls}/{max_tool_calls}\n"
             "- Policy: {tools_policy}\n"
+            "- Repository evidence policy: {repository_tool_policy}\n"
             "- Think internally; do not expose chain-of-thought.\n"
             "- Return strict JSON only, using ONE of the following shapes:\n"
             "  1) Tool request:\n"
             "     {{\"action\":\"tool_call\",\"tool_name\":\"<tool>\",\"arguments\":{{...}},\"reason_summary\":\"<one sentence>\"}}\n"
             "  2) Final output:\n"
             "     {{\"action\":\"final_review\",\"review_data\":{{\"verdict\":\"APPROVED|CHANGES_SUGGESTED\",\"summary\":\"...\",\"checklist\":[],\"comments\":[]}}}}\n"
+            "- During ReAct control, do not output the bare review schema directly; always wrap final output in action=final_review.\n"
             "- Allowed tools:\n{allowed_tools}\n"
             "- Prior tool trace:\n{tool_trace_block}\n"
+            "- Tool observations:\n{tool_observations}\n"
         ).format(
             agent_name=agent_name,
             iteration=iteration,
@@ -230,8 +320,10 @@ class ReviewGraphAgents:
             tool_calls=tool_calls,
             max_tool_calls=max_tool_calls,
             tools_policy=tools_policy,
+            repository_tool_policy=repository_tool_policy,
             allowed_tools=allowed_tools,
             tool_trace_block=ReviewGraphAgents._build_tool_trace_block(tool_trace),
+            tool_observations=tool_observations,
         )
 
     def _parse_agent_action(self, response):
@@ -263,6 +355,199 @@ class ReviewGraphAgents:
             }
 
         raise ValueError("Unsupported ReAct agent action payload")
+
+    @staticmethod
+    def _normalize_repo_path(file_path):
+        normalized = str(file_path or "").strip().replace("\\", "/")
+        normalized = re.sub(r"^(?:\./)+", "", normalized)
+        normalized = re.sub(r"^(?:a|b)/", "", normalized)
+        normalized = normalized.lstrip("/")
+        return normalized.lower()
+
+    @classmethod
+    def _normalize_comment_text_for_fingerprint(cls, text):
+        normalized = str(text or "").lower()
+        normalized = normalized.replace("->", " ").replace("=>", " ")
+        normalized = (
+            normalized.replace("::", " ")
+            .replace("/", " ")
+            .replace("\\", " ")
+            .replace("_", " ")
+            .replace("-", " ")
+        )
+        normalized = re.sub(r"`{1,3}", " ", normalized)
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    @classmethod
+    def _token_set_for_similarity(cls, text):
+        normalized_text = cls._normalize_comment_text_for_fingerprint(text)
+        if not normalized_text:
+            return set()
+        return {
+            token
+            for token in normalized_text.split()
+            if len(token) >= 3 and token not in cls._COMMENT_TOKEN_STOPWORDS
+        }
+
+    @classmethod
+    def _comments_are_near_duplicates(cls, left_text, right_text):
+        left_normalized = cls._normalize_comment_text_for_fingerprint(left_text)
+        right_normalized = cls._normalize_comment_text_for_fingerprint(right_text)
+        if not left_normalized or not right_normalized:
+            return False
+        if left_normalized == right_normalized:
+            return True
+
+        left_tokens = cls._token_set_for_similarity(left_normalized)
+        right_tokens = cls._token_set_for_similarity(right_normalized)
+        if not left_tokens or not right_tokens:
+            return False
+
+        intersection_count = len(left_tokens & right_tokens)
+        if intersection_count < cls._MIN_DUPLICATE_TOKEN_INTERSECTION:
+            return False
+
+        min_token_count = min(len(left_tokens), len(right_tokens))
+        if min_token_count <= 0:
+            return False
+
+        overlap_ratio = intersection_count / float(min_token_count)
+        return overlap_ratio >= cls._MIN_DUPLICATE_TOKEN_OVERLAP
+
+    @staticmethod
+    def _normalize_reply_sentiment(sentiment):
+        normalized = str(sentiment or "").strip().upper().replace(" ", "_")
+        if normalized in {
+            ReviewGraphAgents._REPLY_SENTIMENT_REJECTED,
+            ReviewGraphAgents._REPLY_SENTIMENT_NOT_REJECTED,
+            ReviewGraphAgents._REPLY_SENTIMENT_UNSURE,
+        }:
+            return normalized
+        return ReviewGraphAgents._REPLY_SENTIMENT_UNSURE
+
+    def _resolve_comment_severity_with_context(self, severity, file_path=None, comment_text=None):
+        try:
+            return self._resolve_comment_severity(severity, file_path, comment_text)
+        except TypeError:
+            return self._resolve_comment_severity(severity, file_path)
+
+    @staticmethod
+    def _sanitize_reply_text(value, max_chars=400):
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 16].rstrip() + "... [truncated]"
+
+    def _classify_existing_bot_comment_reply_sentiments(self, state: ReviewGraphState, threads):
+        if not threads:
+            return {}
+
+        run_judge_model = str(state.get("judge_model") or "").strip()
+        if not run_judge_model:
+            return {}
+
+        model_endpoint = str(state.get("model_endpoint") or self._model_endpoint).strip().lower()
+        run_stream_response = bool(state.get("stream_response"))
+
+        prompt_threads = []
+        for thread in threads:
+            if not isinstance(thread, dict):
+                continue
+            comment_id = str(thread.get("comment_id") or "").strip()
+            if not comment_id:
+                continue
+            prompt_threads.append(
+                {
+                    "comment_id": comment_id,
+                    "path": str(thread.get("path") or ""),
+                    "line": thread.get("line"),
+                    "bot_comment": self._sanitize_reply_text(thread.get("text"), max_chars=300),
+                    "replies": [
+                        self._sanitize_reply_text(reply, max_chars=240)
+                        for reply in (thread.get("reply_texts") or [])
+                        if str(reply or "").strip()
+                    ],
+                }
+            )
+
+        if not prompt_threads:
+            return {}
+
+        classifier_sys_p = (
+            "You classify whether human replies reject previous bot review comments. "
+            "Return strict JSON only."
+        )
+        classifier_user_p = (
+            "Classify each thread reply sentiment relative to the bot comment.\n"
+            "- REJECTED: human replies indicate bot comment is wrong/not applicable/false positive/rejected.\n"
+            "- NOT_REJECTED: replies do not reject the bot comment.\n"
+            "- UNSURE: ambiguous.\n\n"
+            f"Threads:\n{json.dumps(prompt_threads, ensure_ascii=False)}\n\n"
+            "Return JSON in this exact shape:\n"
+            '{"results":[{"comment_id":"<id>","sentiment":"REJECTED|NOT_REJECTED|UNSURE"}]}'
+        )
+
+        try:
+            response = self._get_review_model_completion(
+                run_judge_model,
+                classifier_sys_p,
+                classifier_user_p,
+                pr_id=state.get("pr_id"),
+                vcs_config=state.get("vcs_config"),
+                previous_response_id=None,
+                store_response=False,
+                model_endpoint=model_endpoint,
+                stream_response=run_stream_response,
+            )
+            payload = self._extract_json_payload_from_model_response(response)
+            results = payload.get("results")
+            if not isinstance(results, list):
+                return {}
+
+            sentiment_by_comment_id = {}
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                comment_id = str(row.get("comment_id") or "").strip()
+                if not comment_id:
+                    continue
+                sentiment_by_comment_id[comment_id] = self._normalize_reply_sentiment(
+                    row.get("sentiment")
+                )
+            return sentiment_by_comment_id
+        except Exception:
+            logger.warning(
+                "Policy guard reply-sentiment classification failed; defaulting to UNSURE for replied threads.",
+                exc_info=True,
+            )
+            return {}
+
+    @staticmethod
+    def _format_outstanding_checklist_item(existing_comment):
+        path = str(existing_comment.get("path") or "").strip()
+        if path.lower() == "unknown-file":
+            path = ""
+
+        line = existing_comment.get("line")
+        try:
+            line_value = int(line)
+        except (TypeError, ValueError):
+            line_value = 0
+
+        if path and line_value > 0:
+            location = f"{path}:{line_value}"
+        elif path:
+            location = path
+        else:
+            location = ""
+        text = re.sub(r"\s+", " ", str(existing_comment.get("text") or "")).strip()
+        if len(text) > 140:
+            text = text[:137].rstrip() + "..."
+        if location:
+            return f"Address existing bot comment: {location} — {text}"
+        return f"Address existing bot comment — {text}"
 
     def _run_tool_call(
         self,
@@ -432,6 +717,25 @@ class ReviewGraphAgents:
         repository_bundle = dict(repository_context_bundle or {})
         latest_response = None
 
+        deferred_repo_sections = {
+            section_name
+            for section_name in ("repo_map", "related_files_context", "code_search_context")
+            if "deferred" in str(repository_bundle.get(section_name, "")).strip().lower()
+        }
+        initial_repository_tool_required = bool(
+            allow_tool_calls
+            and self._react_require_initial_repository_tool
+            and node_name in {"draft_reviewer", "evidence_judge"}
+            and deferred_repo_sections
+        )
+        repository_tool_names = {
+            "get_repo_map",
+            "get_related_files",
+            "search_code",
+            "get_repository_context_bundle",
+        }
+        repository_tool_called = False
+
         for iteration in range(1, max_iterations + 1):
             react_block = self._build_react_control_block(
                 agent_name=node_name,
@@ -440,7 +744,11 @@ class ReviewGraphAgents:
                 tool_calls=tool_calls,
                 max_tool_calls=self._react_max_tool_calls_per_agent,
                 allow_tool_calls=allow_tool_calls,
+                require_repository_tool_before_final=(
+                    initial_repository_tool_required and not repository_tool_called
+                ),
                 tool_trace=tool_trace,
+                tool_observations=self._build_tool_observations_block(tool_trace),
             )
             user_prompt = base_user_prompt + react_block
 
@@ -488,6 +796,17 @@ class ReviewGraphAgents:
 
             action = action_payload.get("action")
             if action == self._ACTION_FINAL_REVIEW:
+                if initial_repository_tool_required and not repository_tool_called:
+                    tool_trace.append(
+                        {
+                            "tool_name": "_policy",
+                            "status": "rejected",
+                            "result_chars": 0,
+                            "result_preview": "Final review rejected until at least one repository evidence tool is called.",
+                            "reason": "initial-repository-tool-required",
+                        }
+                    )
+                    continue
                 return (
                     self._normalize_review_payload(action_payload.get("review_data")),
                     iteration,
@@ -525,6 +844,8 @@ class ReviewGraphAgents:
                     state=state,
                     repository_context_bundle=repository_bundle,
                 )
+                if action_payload.get("tool_name") in repository_tool_names:
+                    repository_tool_called = True
                 tool_calls += 1
                 tool_trace.append(
                     {
@@ -634,7 +955,15 @@ class ReviewGraphAgents:
             "changed_files_context": str(
                 state.get("changed_files_context")
                 or "No changed-file context available."
-            )
+            ),
+            "repo_map": str(state.get("repo_map") or "No repository map context available."),
+            "related_files_context": str(
+                state.get("related_files_context")
+                or "No related-file context available."
+            ),
+            "code_search_context": str(
+                state.get("code_search_context") or "No code-search context available."
+            ),
         }
         draft_review_data, draft_iteration_count, draft_tool_calls, draft_tool_trace, draft_bundle = (
             self._run_react_loop(
@@ -683,9 +1012,16 @@ class ReviewGraphAgents:
         run_judge_model = state.get("judge_model")
         run_stream_response = bool(state.get("stream_response"))
         model_endpoint = str(state.get("model_endpoint") or self._model_endpoint).strip().lower()
+        output_contract = (
+            REACT_OUTPUT_CONTRACT if self._react_enabled else NON_REACT_OUTPUT_CONTRACT
+        )
 
         with open(self._prompts_dir / "judge_review_system_prompt.md", "r", encoding="utf-8") as f:
-            judge_sys_p = f.read().replace("{{TEAM_NAME}}", str(state.get("team_name") or ""))
+            judge_sys_p = (
+                f.read()
+                .replace("{{TEAM_NAME}}", str(state.get("team_name") or ""))
+                .replace("{{OUTPUT_CONTRACT}}", output_contract)
+            )
 
         draft_payload = state.get("normalized_draft_review_data")
         if not isinstance(draft_payload, dict) or not draft_payload:
@@ -697,7 +1033,15 @@ class ReviewGraphAgents:
             "changed_files_context": str(
                 state.get("changed_files_context")
                 or "No changed-file context available."
-            )
+            ),
+            "repo_map": str(state.get("repo_map") or "No repository map context available."),
+            "related_files_context": str(
+                state.get("related_files_context")
+                or "No related-file context available."
+            ),
+            "code_search_context": str(
+                state.get("code_search_context") or "No code-search context available."
+            ),
         }
 
         with open(self._prompts_dir / "judge_review_user_prompt.md", "r", encoding="utf-8") as f:
@@ -710,6 +1054,7 @@ class ReviewGraphAgents:
                 changed_files_context=initial_judge_bundle["changed_files_context"],
                 draft_review_data=draft_payload,
                 repository_context_bundle=initial_judge_bundle,
+                output_contract=output_contract,
             )
 
         logger.info(
@@ -787,3 +1132,244 @@ class ReviewGraphAgents:
                 "judge_repository_context_bundle": judge_bundle,
             },
         )
+
+    def policy_guard_agent(self, state: ReviewGraphState) -> ReviewGraphState:
+        node_name = "policy_guard_agent"
+        if self._is_halted(node_name, state):
+            return cast(ReviewGraphState, {})
+
+        self._log_node_start(node_name, state)
+
+        existing_comments_by_anchor = {}
+        existing_indexed_comments = []
+        for existing_comment in state.get("existing_bot_inline_comments", []):
+            if not isinstance(existing_comment, dict):
+                continue
+
+            normalized_path = self._normalize_repo_path(existing_comment.get("path"))
+            normalized_line = self._safe_int(existing_comment.get("line"), default=0)
+            existing_text = str(existing_comment.get("text") or "").strip()
+            if not existing_text:
+                continue
+
+            existing_indexed_comments.append(existing_comment)
+
+            if not normalized_path or normalized_line <= 0:
+                continue
+
+            anchor_key = (normalized_path, normalized_line)
+            existing_comments_by_anchor.setdefault(anchor_key, []).append(existing_comment)
+
+        guarded_comments = []
+        accepted_comments_by_anchor = {}
+        duplicate_suppressed_count = 0
+        existing_duplicate_suppressed_count = 0
+        pending_existing_duplicate_matches = []
+
+        for comment in state.get("resolved_comments", []):
+            if not isinstance(comment, dict):
+                continue
+
+            comment_path = self._normalize_repo_path(comment.get("path"))
+            comment_line = self._safe_int(comment.get("line"), default=0)
+            comment_text = str(comment.get("text") or "").strip()
+
+            anchor_key = None
+            if comment_path and comment_line > 0 and comment_text:
+                anchor_key = (comment_path, comment_line)
+
+            matched_existing_comment = None
+            suppressed_due_to_current_batch = False
+            if anchor_key:
+                existing_anchor_comments = existing_comments_by_anchor.get(anchor_key, [])
+                accepted_anchor_texts = accepted_comments_by_anchor.get(anchor_key, [])
+
+                for existing_comment in existing_anchor_comments:
+                    if ReviewGraphAgents._comments_are_near_duplicates(
+                        comment_text,
+                        str(existing_comment.get("text") or ""),
+                    ):
+                        matched_existing_comment = existing_comment
+                        break
+
+                suppressed_due_to_current_batch = any(
+                    ReviewGraphAgents._comments_are_near_duplicates(comment_text, accepted_text)
+                    for accepted_text in accepted_anchor_texts
+                )
+
+            if matched_existing_comment is not None or suppressed_due_to_current_batch:
+                duplicate_suppressed_count += 1
+                if matched_existing_comment is not None:
+                    existing_duplicate_suppressed_count += 1
+                    pending_existing_duplicate_matches.append(
+                        {
+                            "existing_comment": matched_existing_comment,
+                            "candidate_text": comment_text,
+                        }
+                    )
+                continue
+
+            guarded_comments.append(
+                {
+                    **comment,
+                    "severity": self._resolve_comment_severity_with_context(
+                        comment.get("severity"),
+                        comment.get("path"),
+                        comment.get("text"),
+                    ),
+                }
+            )
+            if anchor_key:
+                accepted_comments_by_anchor.setdefault(anchor_key, []).append(comment_text)
+
+        normalized_verdict = str(state.get("verdict") or "CHANGES_SUGGESTED").strip().upper()
+        normalized_verdict = normalized_verdict.replace(" ", "_")
+        evaluate_all_existing_when_approved = (
+            normalized_verdict == "APPROVED" and not guarded_comments
+        )
+
+        pending_existing_matches_for_outstanding = list(pending_existing_duplicate_matches)
+        if evaluate_all_existing_when_approved:
+            for existing_comment in existing_indexed_comments:
+                pending_existing_matches_for_outstanding.append(
+                    {
+                        "existing_comment": existing_comment,
+                        "candidate_text": "",
+                    }
+                )
+
+        deduped_pending_matches = []
+        seen_pending_keys = set()
+        for pending in pending_existing_matches_for_outstanding:
+            existing_comment = pending.get("existing_comment")
+            if not isinstance(existing_comment, dict):
+                continue
+            dedupe_key = (
+                str(existing_comment.get("comment_id") or "").strip(),
+                self._normalize_repo_path(existing_comment.get("path")),
+                self._safe_int(existing_comment.get("line"), default=0),
+                self._normalize_comment_text_for_fingerprint(
+                    str(existing_comment.get("text") or "")
+                ),
+            )
+            if dedupe_key in seen_pending_keys:
+                continue
+            seen_pending_keys.add(dedupe_key)
+            deduped_pending_matches.append(pending)
+
+        threads_for_llm = []
+        thread_ids_for_llm = set()
+        for pending in deduped_pending_matches:
+            existing_comment = pending.get("existing_comment")
+            if not isinstance(existing_comment, dict):
+                continue
+            comment_id = str(existing_comment.get("comment_id") or "").strip()
+            reply_texts = [
+                str(reply or "").strip()
+                for reply in (existing_comment.get("reply_texts") or [])
+                if str(reply or "").strip()
+            ]
+            if not comment_id or not reply_texts:
+                continue
+            if comment_id in thread_ids_for_llm:
+                continue
+            thread_ids_for_llm.add(comment_id)
+            threads_for_llm.append(existing_comment)
+
+        reply_sentiment_by_comment_id = self._classify_existing_bot_comment_reply_sentiments(
+            state,
+            threads_for_llm,
+        )
+
+        outstanding_existing_bot_comments = []
+        outstanding_seen = set()
+        for pending in deduped_pending_matches:
+            existing_comment = pending.get("existing_comment")
+            if not isinstance(existing_comment, dict):
+                continue
+
+            comment_id = str(existing_comment.get("comment_id") or "").strip()
+            reply_texts = [
+                str(reply or "").strip()
+                for reply in (existing_comment.get("reply_texts") or [])
+                if str(reply or "").strip()
+            ]
+            sentiment = (
+                reply_sentiment_by_comment_id.get(comment_id, self._REPLY_SENTIMENT_UNSURE)
+                if reply_texts
+                else self._REPLY_SENTIMENT_NOT_REJECTED
+            )
+            is_rejected = sentiment == self._REPLY_SENTIMENT_REJECTED
+            if is_rejected:
+                continue
+
+            dedupe_key = (
+                self._normalize_repo_path(existing_comment.get("path")),
+                self._safe_int(existing_comment.get("line"), default=0),
+                re.sub(r"\s+", " ", str(existing_comment.get("text") or "")).strip().lower(),
+            )
+            if dedupe_key in outstanding_seen:
+                continue
+            outstanding_seen.add(dedupe_key)
+            outstanding_existing_bot_comments.append(
+                {
+                    "comment_id": comment_id,
+                    "path": existing_comment.get("path"),
+                    "line": existing_comment.get("line"),
+                    "severity": existing_comment.get("severity"),
+                    "text": existing_comment.get("text"),
+                    "sentiment": sentiment,
+                }
+            )
+
+        skipped_inline_count = self._safe_int(
+            state.get("skipped_inline_count"),
+            default=0,
+        )
+        skipped_inline_count += duplicate_suppressed_count
+
+        should_force_changes_suggested = bool(guarded_comments) or bool(
+            outstanding_existing_bot_comments
+        )
+        verdict = (
+            "CHANGES_SUGGESTED"
+            if should_force_changes_suggested
+            else str(state.get("verdict") or "CHANGES_SUGGESTED")
+        )
+
+        summary = str(state.get("summary") or "No issues identified.")
+        raw_checklist = state.get("checklist")
+        checklist = list(raw_checklist) if isinstance(raw_checklist, list) else []
+        if outstanding_existing_bot_comments:
+            summary = self._DEFAULT_OUTSTANDING_SUMMARY
+            outstanding_items = [
+                self._format_outstanding_checklist_item(comment)
+                for comment in outstanding_existing_bot_comments
+            ]
+            existing_items = [str(item).strip() for item in checklist if str(item).strip()]
+            checklist = outstanding_items + [
+                item for item in existing_items if item not in outstanding_items
+            ]
+
+        result: ReviewGraphState = {
+            "resolved_comments": guarded_comments,
+            "skipped_inline_count": skipped_inline_count,
+            "existing_duplicate_suppressed_count": existing_duplicate_suppressed_count,
+            "existing_bot_comment_reply_sentiment_by_id": reply_sentiment_by_comment_id,
+            "outstanding_existing_bot_comments": outstanding_existing_bot_comments,
+            "verdict": verdict,
+            "summary": summary,
+            "checklist": checklist,
+        }
+        self._log_node_complete(
+            node_name,
+            state,
+            input_comments=len(state.get("resolved_comments", [])),
+            guarded_comments=len(guarded_comments),
+            duplicate_suppressed=duplicate_suppressed_count,
+            existing_duplicate_suppressed=existing_duplicate_suppressed_count,
+            outstanding_existing_comments=len(outstanding_existing_bot_comments),
+            skipped_inline_count=skipped_inline_count,
+            verdict=verdict,
+        )
+        return result

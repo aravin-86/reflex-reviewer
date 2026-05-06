@@ -93,6 +93,7 @@ max_judge_iterations = "${REVIEW_REACT_MAX_JUDGE_ITERATIONS|-3}"
 max_tool_calls_per_agent = "${REVIEW_REACT_MAX_TOOL_CALLS_PER_AGENT|-8}"
 max_tool_result_chars = "${REVIEW_REACT_MAX_TOOL_RESULT_CHARS|-12000}"
 default_include_changed_files = "${REVIEW_REACT_DEFAULT_INCLUDE_CHANGED_FILES|-true}"
+require_initial_repository_tool = "${REVIEW_REACT_REQUIRE_INITIAL_REPOSITORY_TOOL|-true}"
 allow_judge_tool_retrieval = "${REVIEW_REACT_ALLOW_JUDGE_TOOL_RETRIEVAL|-true}"
 lazy_repository_context = "${REVIEW_REACT_LAZY_REPOSITORY_CONTEXT|-true}"
 

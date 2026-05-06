@@ -202,6 +202,7 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
         self.assertEqual(review_config.get("max_code_search_results"), 500)
         self.assertEqual(review_config.get("max_code_search_chars"), 150000)
         self.assertEqual(review_config.get("max_code_search_query_terms"), 50)
+        self.assertTrue(review_config.get("react_require_initial_repository_tool"))
         self.assertEqual(
             review_config.get("repository_ignore_directories"),
             self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES,
@@ -242,6 +243,16 @@ class ConfigRuntimeOverridesTests(unittest.TestCase):
             self.DEFAULT_REPOSITORY_IGNORE_DIRECTORIES
             | {"dev-tools", ".cache", "nested"},
         )
+
+    def test_review_react_require_initial_repository_tool_resolves_from_env(self):
+        with patch.dict(
+            "os.environ",
+            {"REVIEW_REACT_REQUIRE_INITIAL_REPOSITORY_TOOL": "false"},
+            clear=True,
+        ):
+            review_config = get_review_config()
+
+        self.assertFalse(review_config.get("react_require_initial_repository_tool"))
 
     def test_review_config_merges_test_file_patterns_from_toml_with_defaults(self):
         file_config = {

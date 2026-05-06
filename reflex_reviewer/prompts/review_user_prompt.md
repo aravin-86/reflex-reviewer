@@ -105,7 +105,10 @@ Use these root-level comments as already-covered context. Do **not** restate the
 - Do not invent or approximate anchors.
 - If no suitable anchor exists, skip that inline comment.
 
-Please analyze the diff above and provide your review in the requested JSON format.
+# Output Contract
+{{OUTPUT_CONTRACT}}
+
+Please analyze the diff above and follow the output contract exactly.
 
 # FINAL CHECK BEFORE SUBMITTING
 - Are the identified issues **real and impactful**?

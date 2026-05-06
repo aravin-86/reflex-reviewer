@@ -54,4 +54,6 @@ When an existing bot comment includes `file=` and `line=` metadata and covers th
 - Prefer precision over recall: when uncertain, remove the finding.
 
 # Output requirement
-Return strict JSON only in the required review schema.
+{{OUTPUT_CONTRACT}}
+
+Return strict JSON only and follow the output contract exactly.

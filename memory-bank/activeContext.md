@@ -38,6 +38,62 @@
 - Keep logging minimal and safe; avoid sensitive payload logging.
 
 ## Decisions captured in this update
+- ReAct lazy-context initial repository-tool guard now applies to both draft and judge agents (with judge retrieval gating):
+  - updated `reflex_reviewer/review_graph_runtime/agents.py` (`_run_react_loop`) so `review.react.require_initial_repository_tool=true` enforces at least one repository-evidence tool call before finalization for both `draft_reviewer` and `evidence_judge` when repository sections are deferred,
+  - judge-side enforcement remains conditioned on `review.react.allow_judge_tool_retrieval=true` via existing `allow_tool_calls` gating,
+  - added regression coverage in `tests/test_review_graph_runtime_agents.py`:
+    - `test_evidence_judge_react_requires_initial_repository_tool_when_lazy_context_deferred`,
+    - test helper now supports per-test `react_max_judge_iterations` override for deterministic reject → tool → final sequencing,
+  - updated docs to reflect draft+judge parity:
+    - `CHANGELOG.md` (`## [1.1.0]` highlights/runtime bullets),
+    - `README.md` (`Inference behavior` and `Important behavior notes` for `require_initial_repository_tool` semantics),
+  - verified with targeted suite:
+    - `.venv/bin/python -m unittest tests.test_review_graph_runtime_agents tests.test_review_graph_runtime_graph tests.test_config_runtime_overrides tests.test_review_model_api`
+    - Result: `Ran 63 tests ... OK`.
+
+- Updated `CHANGELOG.md` (`## [1.1.0]` → `### Highlights`) to explicitly capture that draft ReAct now defaults to using at least one repository-context tool call before finalization when context is deferred, and to call out the prompt output-format conflict fix via mode-aware output contracts.
+
+- Policy-guard outstanding checklist formatting no longer emits the placeholder `unknown-file` when existing bot comments do not have a usable path.
+  - Updated `reflex_reviewer/review_graph_runtime/agents.py` (`_format_outstanding_checklist_item`) to:
+    - omit location entirely when path is empty/placeholder,
+    - preserve real `path:line` output when available.
+  - Added regression coverage in `tests/test_review_graph_runtime_agents.py`:
+    - `test_policy_guard_agent_outstanding_checklist_omits_unknown_file_placeholder`.
+  - Verified with targeted suite:
+    - `.venv/bin/python -m unittest tests.test_review_graph_runtime_agents tests.test_review_model_api`
+    - Result: `Ran 36 tests ... OK`.
+
+- ReAct prompt contract mismatch was fixed across draft + judge paths.
+- Root cause captured: prompt templates still instructed strict bare review JSON even when `react_enabled=true`, so models finalized in one shot (`iteration_count=1`, `tool_calls=0`) instead of emitting ReAct `action` envelopes/tool requests.
+- Implemented mode-aware output contract rendering:
+  - added shared constants module: `reflex_reviewer/review_output_contracts.py`,
+  - wired `{{OUTPUT_CONTRACT}}` placeholder injection in draft prompt rendering (`review_graph_runtime/nodes.py`),
+  - wired `{{OUTPUT_CONTRACT}}` placeholder injection in judge prompt rendering (`review_graph_runtime/agents.py` + `_build_judge_prompt_user_content` in `review.py`),
+  - updated prompt templates to use `{{OUTPUT_CONTRACT}}` and removed hardcoded conflicting output wording.
+- Added regression tests for mode-aware contract wiring:
+  - `tests/test_review_graph_runtime_nodes.py` now validates non-ReAct vs ReAct output contract text in `prepare_review_inputs`,
+  - `tests/test_review_graph_runtime_agents.py` now validates `evidence_judge` passes/replaces the correct contract for both ReAct and non-ReAct modes.
+- Verified with targeted suite:
+  - `.venv/bin/python -m pytest tests/test_review_graph_runtime_nodes.py tests/test_review_graph_runtime_agents.py tests/test_review_model_api.py tests/test_review_graph_runtime_graph.py`
+  - Result: `43 passed`.
+
+- ReAct finalization behavior was tightened to address runs that repeatedly ended at `iteration_count=1` with `tool_calls=0` under lazy repository context.
+- Root cause captured: draft/judge ReAct loops were not always carrying the initial repository placeholders (`repo_map`, `related_files_context`, `code_search_context`) into the internal bundle, so the "deferred repository context" guard did not consistently trigger repository-tool-first behavior.
+- ReAct control/policy updates now enforce a stricter contract:
+  - final outputs in ReAct mode must be wrapped as `{"action":"final_review", ...}` (no bare review schema during control loop),
+  - when lazy repository context is deferred and `review.react.require_initial_repository_tool=true`, draft agent must call at least one repository evidence tool (`get_repo_map`, `get_related_files`, `search_code`, or `get_repository_context_bundle`) before finalization.
+- Added/updated configuration and docs:
+  - `review.react.require_initial_repository_tool` documented in `README.md` (default `true`),
+  - env-backed runtime resolution validated in config tests.
+- Added targeted regression tests for:
+  - graph wiring/config pass-through,
+  - draft ReAct "initial repository tool required" behavior,
+  - config override resolution,
+  - responses-endpoint state-store assertions updated for multi-iteration ReAct behavior.
+- Verified with targeted suite:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_graph tests.test_review_graph_runtime_agents tests.test_config_runtime_overrides tests.test_review_model_api`
+  - Result: `Ran 56 tests ... OK`.
+
 - Refined `README.md` Section 2.2 (`Review flow`) to improve readability without changing behavior:
   - tightened the four core stage descriptions (`Context gathering`, `Repository enrichment`, `Inference`, `Publishing`),
   - split nested repository-context details into a dedicated `Repository enrichment includes` block,
@@ -52,6 +108,10 @@
   - bounded iterations and tool-call caps,
   - internal-only reasoning instruction (no chain-of-thought exposure),
   - deterministic fallback to safe empty review payload when model output is unusable.
+- ReAct enablement is now runtime-gated by repository availability:
+  - effective ReAct mode is enabled only when configured `review.react.enabled=true` **and** `REPOSITORY_PATH` resolves to a valid local repository,
+  - when `REPOSITORY_PATH` is unset/invalid, runtime logs a safe informational message and falls back to non-ReAct draft/judge execution,
+  - this prevents ReAct loops from running without repository-backed retrieval context.
 - Added bounded internal retrieval tools available to ReAct agents:
   - `get_changed_files`, `get_repo_map`, `get_related_files`, `search_code`, `get_repository_context_bundle`.
 - Added lazy repository-context bootstrap behavior in deterministic context nodes:
@@ -110,6 +170,55 @@
   - normalized near-duplicate matching applies to all inline comments on the same normalized path+line,
   - duplicate suppression also applies within the same run payload when two generated comments are near-duplicates on the same anchor,
   - suppressed findings increment `skipped_inline_count` and are not posted.
+- Policy-guard stage is now LLM-backed in the review graph as `policy_guard_agent`:
+  - graph wiring changed from deterministic `nodes.policy_guard` to `agents.policy_guard_agent` after `anchor_resolver`,
+  - `policy_guard_agent` still enforces deterministic same-anchor duplicate suppression but now uses an LLM call to classify reply sentiment on matching prior bot comment threads (`REJECTED|NOT_REJECTED|UNSURE`),
+  - matching prior comments without replies are treated as not rejected when current code still yields the same finding,
+  - `REJECTED` prior comment threads are honored and do not force changes suggested when no other findings exist,
+  - non-rejected/unsure prior comment matches force coherent summary rewriting (verdict + summary + checklist), not just verdict override.
+- Existing bot inline extraction now captures reply-thread context for policy-guard classification:
+  - added reply collection from both standalone reply activities (`parent.id`) and embedded reply lists under root comment payloads,
+  - extracted existing bot inline records now include `comment_id` and `reply_texts`.
+- Review graph state now tracks policy-guard LLM classification artifacts:
+  - `existing_bot_comment_reply_sentiment_by_id`
+  - `outstanding_existing_bot_comments`
+- README review documentation updated to reflect architecture/runtime change:
+  - review flow text now references `policy_guard_agent`,
+  - review graph Mermaid diagram now marks `policy_guard_agent` as an LLM-backed agent node,
+  - legend/grouping updated accordingly.
+- Added/updated test coverage for policy-guard-agent behavior:
+  - `tests/test_review_graph_runtime_agents.py` includes `policy_guard_agent` tests for `NOT_REJECTED` forcing changes suggested and `REJECTED` allowing approved,
+  - `tests/test_review_model_api.py` run-path regression now includes policy-guard classifier response and validates summary body rewrite/checklist when prior finding remains outstanding,
+  - `tests/test_review_graph_runtime_nodes.py` fixtures updated for enriched existing-comment shape (`comment_id`, `reply_texts`) while retaining deterministic node coverage.
+- Verified with targeted suite:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_agents tests.test_review_graph_runtime_nodes tests.test_review_model_api`
+  - Result: `Ran 36 tests ... OK`.
+- Review graph policy guard now deterministically honors prior unresolved bot findings in final summary recommendation:
+  - `policy_guard` tracks duplicates suppressed specifically against existing bot inline comments via `existing_duplicate_suppressed_count`,
+  - if judge returns `APPROVED` but guarded comments remain or existing-comment duplicate suppression indicates prior findings still apply, verdict is coerced to `CHANGES_SUGGESTED`,
+  - this prevents posting `Looks Good` when earlier bot findings are still relevant but suppressed from reposting.
+- Policy guard now also handles prior unresolved bot findings when the current judge output contains **zero** inline comments:
+  - `policy_guard_agent` indexes existing bot inline comments even when no same-run duplicate suppression occurs,
+  - when judge verdict is `APPROVED` and there are no guarded comments, existing bot comments are evaluated as outstanding unless explicitly rejected by reply sentiment,
+  - unreplied existing comments default to not-rejected and can force `CHANGES_SUGGESTED` summary/checklist rewrite,
+  - this closes the gap where summary could remain `Looks Good` despite unresolved prior bot comments.
+- Existing-bot extraction now retains root bot comments in state even when inline anchor path/line are missing/unparseable:
+  - extraction no longer drops such comments solely due to absent normalized anchor,
+  - extracted entries retain safe `path` (possibly empty) and `line` (`0` fallback) so policy guard can still evaluate outstanding prior comments.
+- Added verdict-guard regression coverage:
+  - `tests/test_review_graph_runtime_nodes.py` now validates both forced `CHANGES_SUGGESTED` and unchanged `APPROVED` scenarios,
+  - `tests/test_review_model_api.py` run-path regression now asserts summary recommendation remains `Changes Suggested` even when judge payload says `APPROVED` and inline is suppressed as existing duplicate.
+- Added/updated regression coverage for the zero-new-findings outstanding path:
+  - `tests/test_review_graph_runtime_agents.py` adds:
+    - forcing `CHANGES_SUGGESTED` when existing unreplied bot comment remains and judge returns `APPROVED` with no new comments,
+    - keeping `APPROVED` when that existing comment is explicitly `REJECTED` by reply sentiment,
+  - `tests/test_review_model_api.py` adds end-to-end run-path assertion that summary recommendation is `Changes Suggested` when existing bot comment remains and judge emits no comments.
+- Verification update:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_agents tests.test_review_graph_runtime_nodes tests.test_review_model_api`
+  - Result: `Ran 44 tests ... OK`.
+- Verified with targeted suite:
+  - `/Users/aranaras/repos/reflex-reviewer/.venv/bin/python -m unittest tests.test_review_graph_runtime_nodes tests.test_review_model_api`
+  - Result: `Ran 31 tests ... OK`.
 - Distill flow now extracts normalized bot-comment severity metadata and includes it in batched sentiment payloads, with test-file advisory coercion.
 - Severity parsing in both flows now defaults unknown/missing labels to `ADVISORY` for safety and consistency.
 - Draft and judge review prompts now explicitly enforce severity policy consistency:

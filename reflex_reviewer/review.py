@@ -25,6 +25,10 @@ from .config import (
     set_runtime_overrides,
 )
 from .llm.api_client import chat_completions, responses
+from .review_output_contracts import (
+    NON_REACT_OUTPUT_CONTRACT,
+    REACT_OUTPUT_CONTRACT,
+)
 from .repository_context.service import (
     build_repo_map_for_changed_files,
     compose_repository_context_bundle,
@@ -65,6 +69,9 @@ REACT_MAX_TOOL_CALLS_PER_AGENT = int(
 REACT_MAX_TOOL_RESULT_CHARS = int(review_config.get("react_max_tool_result_chars") or 12000)
 REACT_DEFAULT_INCLUDE_CHANGED_FILES = bool(
     review_config.get("react_default_include_changed_files", True)
+)
+REACT_REQUIRE_INITIAL_REPOSITORY_TOOL = bool(
+    review_config.get("react_require_initial_repository_tool", True)
 )
 REACT_ALLOW_JUDGE_TOOL_RETRIEVAL = bool(
     review_config.get("react_allow_judge_tool_retrieval", True)
@@ -902,6 +909,7 @@ def _build_judge_prompt_user_content(
     draft_review_data,
     repository_context_bundle,
     changed_files_context="",
+    output_contract=NON_REACT_OUTPUT_CONTRACT,
 ):
     repository_context = repository_context_bundle or {}
     changed_files_section = str(
@@ -930,6 +938,7 @@ def _build_judge_prompt_user_content(
         .replace("{{RELATED_FILES_CONTEXT}}", related_files_context)
         .replace("{{CODE_SEARCH_CONTEXT}}", code_search_context)
         .replace("{{DRAFT_REVIEW_JSON}}", draft_review_json)
+        .replace("{{OUTPUT_CONTRACT}}", str(output_contract or NON_REACT_OUTPUT_CONTRACT))
     )
 
 
@@ -1017,6 +1026,7 @@ def run(
             react_max_judge_iterations=REACT_MAX_JUDGE_ITERATIONS,
             react_max_tool_calls_per_agent=REACT_MAX_TOOL_CALLS_PER_AGENT,
             react_max_tool_result_chars=REACT_MAX_TOOL_RESULT_CHARS,
+            react_require_initial_repository_tool=REACT_REQUIRE_INITIAL_REPOSITORY_TOOL,
             react_allow_judge_tool_retrieval=REACT_ALLOW_JUDGE_TOOL_RETRIEVAL,
             react_lazy_repository_context=REACT_LAZY_REPOSITORY_CONTEXT,
             react_default_include_changed_files=REACT_DEFAULT_INCLUDE_CHANGED_FILES,

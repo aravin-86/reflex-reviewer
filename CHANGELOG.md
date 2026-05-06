@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.0]
+
+### Highlights
+- Promoted publish-stage policy enforcement from deterministic `policy_guard` to the LLM-backed `policy_guard_agent` node in the review graph.
+- Fixed summary recommendation behavior to honor unresolved existing bot comments, so not-yet-addressed prior findings can keep the final recommendation as `Changes Suggested`.
+- Tightened draft and judge ReAct behavior so both now default to fetching repository context with at least one tool call before finalizing (when repository context is deferred and tool retrieval is enabled), and fixed prompt output-format conflicts via mode-aware contracts.
+
+### Runtime and platform evolution
+- Made ReAct execution repository-aware: ReAct now runs only when `REPOSITORY_PATH` resolves to a valid local repository, with safe fallback to the standard non-ReAct draft/judge path otherwise.
+- Added stricter lazy-context ReAct control via `require_initial_repository_tool`, requiring draft and judge ReAct to collect repository evidence before finalizing when repository context is deferred (judge enforcement applies when judge tool retrieval is enabled).
+- Introduced shared mode-aware output contracts for draft/judge prompts (`review_output_contracts.py`) so ReAct and non-ReAct paths enforce the correct JSON response shape.
+- Bumped package version to `1.1.0`.
+
+### Reliability and data quality improvements
+- Strengthened same-anchor near-duplicate handling against existing bot inline comments and within-run generated comments.
+- Added reply-sentiment-aware evaluation of prior bot comment threads (`REJECTED` / `NOT_REJECTED` / `UNSURE`) to improve outstanding-finding decisions.
+- Improved outstanding-checklist and summary rewriting flow so unresolved prior comments are reflected coherently in the final review summary output.
+
 ## [1.0.0]
 
 ### Highlights

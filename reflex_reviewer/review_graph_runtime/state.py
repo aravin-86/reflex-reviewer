@@ -58,4 +58,7 @@ class ReviewGraphState(TypedDict, total=False):
 
     posted_inline_count: int
     skipped_inline_count: int
+    existing_duplicate_suppressed_count: int
+    existing_bot_comment_reply_sentiment_by_id: Dict[str, str]
+    outstanding_existing_bot_comments: List[Dict[str, Any]]
     halt: bool

@@ -16,6 +16,7 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
         max_repo_map_chars,
         max_related_files_chars,
         max_code_search_chars,
+        react_enabled=False,
         resolve_comment_severity=None,
     ):
         severity_resolver = (
@@ -59,9 +60,84 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
             post_inline_comment=_noop,
             upsert_summary_comment=_noop,
             model_endpoint="responses",
-            react_enabled=False,
+            react_enabled=react_enabled,
             react_lazy_repository_context=False,
             react_default_include_changed_files=True,
+        )
+
+    def test_prepare_review_inputs_renders_non_react_output_contract(self):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "pr_id": 101,
+                "team_name": "TEAM-ONE",
+                "safe_diff": "diff",
+                "review_purpose": "purpose",
+                "pr_title": "title",
+                "pr_description": "description",
+                "existing_feedback": "feedback",
+                "changed_files_context": "- src/app.py",
+                "repository_context_bundle": {
+                    "repo_map": "repo-map",
+                    "related_files_context": "related",
+                    "code_search_context": "search",
+                },
+            },
+        )
+
+        result = nodes.prepare_review_inputs(state)
+
+        self.assertIn(
+            "Return a valid JSON object with this structure:",
+            str(result.get("draft_sys_p") or ""),
+        )
+        self.assertIn(
+            "Return a valid JSON object with this structure:",
+            str(result.get("draft_user_p") or ""),
+        )
+        self.assertNotIn("{{OUTPUT_CONTRACT}}", str(result.get("draft_sys_p") or ""))
+        self.assertNotIn("{{OUTPUT_CONTRACT}}", str(result.get("draft_user_p") or ""))
+
+    def test_prepare_review_inputs_renders_react_output_contract_when_enabled(self):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+            react_enabled=True,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "pr_id": 102,
+                "team_name": "TEAM-ONE",
+                "safe_diff": "diff",
+                "review_purpose": "purpose",
+                "pr_title": "title",
+                "pr_description": "description",
+                "existing_feedback": "feedback",
+                "changed_files_context": "- src/app.py",
+                "repository_context_bundle": {
+                    "repo_map": "repo-map",
+                    "related_files_context": "related",
+                    "code_search_context": "search",
+                },
+            },
+        )
+
+        result = nodes.prepare_review_inputs(state)
+
+        self.assertIn('"action":"tool_call"', str(result.get("draft_sys_p") or ""))
+        self.assertIn('"action":"tool_call"', str(result.get("draft_user_p") or ""))
+        self.assertIn(
+            "Do not output the bare review schema directly in ReAct mode.",
+            str(result.get("draft_sys_p") or ""),
         )
 
     def test_compose_repository_context_logs_used_and_configured_totals(self):
@@ -137,10 +213,12 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
                 ],
                 "existing_bot_inline_comments": [
                     {
+                        "comment_id": "700",
                         "path": "src/config.py",
                         "line": 88,
                         "severity": "ADVISORY",
                         "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                        "reply_texts": [],
                     }
                 ],
                 "skipped_inline_count": 0,
@@ -175,10 +253,12 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
                 ],
                 "existing_bot_inline_comments": [
                     {
+                        "comment_id": "700",
                         "path": "src/config.py",
                         "line": 88,
                         "severity": "ADVISORY",
                         "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                        "reply_texts": [],
                     }
                 ],
                 "skipped_inline_count": 0,
@@ -295,6 +375,72 @@ class ReviewGraphRuntimeNodesTests(unittest.TestCase):
         self.assertEqual(guarded_comments[0].get("severity"), "ADVISORY")
         self.assertEqual(guarded_comments[1].get("severity"), "ADVISORY")
         self.assertEqual(guarded_comments[2].get("severity"), "MAJOR")
+
+    def test_policy_guard_forces_changes_suggested_when_existing_duplicate_is_suppressed(
+        self,
+    ):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "verdict": "APPROVED",
+                "resolved_comments": [
+                    {
+                        "anchor": {"path": "src/config.py", "line": 88},
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo: COMPOSITEDATUGHSHARDSPACES should be COMPOSITEDATAGUARDSHARDSPACES.",
+                    }
+                ],
+                "existing_bot_inline_comments": [
+                    {
+                        "comment_id": "700",
+                        "path": "src/config.py",
+                        "line": 88,
+                        "severity": "ADVISORY",
+                        "text": "Typo in CompositeDataGuardShardSpaces value: COMPOSITEDATUGHSHARDSPACES -> COMPOSITEDATAGUARDSHARDSPACES.",
+                        "reply_texts": [],
+                    }
+                ],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        self.assertEqual(result.get("verdict"), "CHANGES_SUGGESTED")
+        self.assertEqual(result.get("existing_duplicate_suppressed_count"), 1)
+        self.assertEqual(result.get("skipped_inline_count"), 1)
+        self.assertEqual(result.get("resolved_comments"), [])
+
+    def test_policy_guard_keeps_approved_when_no_prior_or_current_findings(self):
+        nodes = self._build_nodes(
+            max_repo_map_chars=100,
+            max_related_files_chars=200,
+            max_code_search_chars=300,
+        )
+
+        state = cast(
+            ReviewGraphState,
+            {
+                "verdict": "APPROVED",
+                "resolved_comments": [],
+                "existing_bot_inline_comments": [],
+                "skipped_inline_count": 0,
+            },
+        )
+
+        result = nodes.policy_guard(state)
+
+        self.assertEqual(result.get("verdict"), "APPROVED")
+        self.assertEqual(result.get("existing_duplicate_suppressed_count"), 0)
+        self.assertEqual(result.get("skipped_inline_count"), 0)
 
 
 if __name__ == "__main__":

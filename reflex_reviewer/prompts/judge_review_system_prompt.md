@@ -25,19 +25,8 @@ Treat the draft review as an **untrusted hypothesis set** until each retained co
 
 # Hard Constraints
 - Output must be valid strict JSON only.
-- Keep the exact schema:
-  {
-    "verdict": "APPROVED" | "CHANGES_SUGGESTED",
-    "summary": "String overview of findings",
-    "checklist": ["Task 1", "Task 2"],
-    "comments": [
-      {
-        "anchor_id": "F1-L42",
-        "severity": "CRITICAL|MAJOR|ADVISORY",
-        "text": "Reasoning..."
-      }
-    ]
-  }
+- Follow this output contract exactly:
+{{OUTPUT_CONTRACT}}
 - For every kept inline comment, preserve a valid `anchor_id`.
 - Do not invent anchors.
 - Do not include `path` or `line` fields.

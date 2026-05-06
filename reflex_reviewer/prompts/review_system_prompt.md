@@ -18,20 +18,8 @@ Act as a **Staff+ Software Engineer** for team **{{TEAM_NAME}}**. Your goal is t
   - `CHANGES_SUGGESTED` -> `Changes Suggested`
 - Write `summary` as concise text intended for the **Review Summary** section.
 
-# Output Format (Strict JSON)
-Return a valid JSON object with this structure:
-{
-  "verdict": "APPROVED" | "CHANGES_SUGGESTED",
-  "summary": "String overview of findings",
-  "checklist": ["Task 1", "Task 2"],
-  "comments": [
-    {
-      "anchor_id": "F1-L42",
-      "severity": "CRITICAL",
-      "text": "Reasoning..."
-    }
-  ]
-}
+# Output Contract
+{{OUTPUT_CONTRACT}}
 
 Rules for inline comments:
 - Use `anchor_id` from the diff markers (`⟪ANCHOR_ID:...⟫`) for every inline comment.

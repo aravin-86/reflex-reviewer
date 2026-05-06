@@ -21,6 +21,14 @@ from .state import ReviewGraphState
 logger = logging.getLogger(__name__)
 
 
+def _resolve_effective_react_settings(*, react_enabled, repository_path, resolve_repository_path):
+    """Resolve repository path once and disable ReAct when repository context is unavailable."""
+    resolved_repository_path = resolve_repository_path(repository_path)
+    has_repository_context = bool(str(resolved_repository_path or "").strip())
+    effective_react_enabled = bool(react_enabled) and has_repository_context
+    return effective_react_enabled, resolved_repository_path
+
+
 class _FallbackCompiledReviewGraph:
     def __init__(self, nodes_in_order):
         self._nodes_in_order = nodes_in_order
@@ -91,6 +99,7 @@ def build_review_graph(
     react_max_judge_iterations,
     react_max_tool_calls_per_agent,
     react_max_tool_result_chars,
+    react_require_initial_repository_tool,
     react_allow_judge_tool_retrieval,
     react_lazy_repository_context,
     react_default_include_changed_files,
@@ -140,6 +149,7 @@ def build_review_graph(
         retrieve_related_files_context=retrieve_related_files_context,
         retrieve_bounded_code_search_context=retrieve_bounded_code_search_context,
         compose_repository_context_bundle=compose_repository_context_bundle,
+        resolve_comment_severity=resolve_comment_severity,
         max_repo_map_files=max_repo_map_files,
         max_repo_map_chars=max_repo_map_chars,
         max_related_files=max_related_files,
@@ -157,6 +167,7 @@ def build_review_graph(
         react_max_judge_iterations=react_max_judge_iterations,
         react_max_tool_calls_per_agent=react_max_tool_calls_per_agent,
         react_max_tool_result_chars=react_max_tool_result_chars,
+        react_require_initial_repository_tool=react_require_initial_repository_tool,
         react_allow_judge_tool_retrieval=react_allow_judge_tool_retrieval,
     )
 
@@ -173,7 +184,7 @@ def build_review_graph(
         agents.evidence_judge,
         nodes.summary_builder,
         nodes.anchor_resolver,
-        nodes.policy_guard,
+        agents.policy_guard_agent,
         nodes.publish_review,
     ]
 
@@ -196,7 +207,7 @@ def build_review_graph(
     review_graph.add_node("evidence_judge", agents.evidence_judge)
     review_graph.add_node("summary_builder", nodes.summary_builder)
     review_graph.add_node("anchor_resolver", nodes.anchor_resolver)
-    review_graph.add_node("policy_guard", nodes.policy_guard)
+    review_graph.add_node("policy_guard_agent", agents.policy_guard_agent)
     review_graph.add_node("publish_review", nodes.publish_review)
 
     review_graph.add_edge(START, "fetch_pr_context")
@@ -213,8 +224,8 @@ def build_review_graph(
     review_graph.add_edge("finding_normalizer", "evidence_judge")
     review_graph.add_edge("evidence_judge", "summary_builder")
     review_graph.add_edge("summary_builder", "anchor_resolver")
-    review_graph.add_edge("anchor_resolver", "policy_guard")
-    review_graph.add_edge("policy_guard", "publish_review")
+    review_graph.add_edge("anchor_resolver", "policy_guard_agent")
+    review_graph.add_edge("policy_guard_agent", "publish_review")
     review_graph.add_edge("publish_review", END)
 
     return review_graph.compile()
@@ -266,6 +277,7 @@ def execute_review_graph(
     react_max_judge_iterations,
     react_max_tool_calls_per_agent,
     react_max_tool_result_chars,
+    react_require_initial_repository_tool,
     react_allow_judge_tool_retrieval,
     react_lazy_repository_context,
     react_default_include_changed_files,
@@ -280,6 +292,18 @@ def execute_review_graph(
         pr_id,
         LANGGRAPH_AVAILABLE,
     )
+
+    effective_react_enabled, resolved_repository_path = _resolve_effective_react_settings(
+        react_enabled=react_enabled,
+        repository_path=repository_path,
+        resolve_repository_path=resolve_repository_path,
+    )
+    if react_enabled and not effective_react_enabled:
+        logger.info(
+            "ReAct disabled because REPOSITORY_PATH is unset or invalid. pr_id=%s",
+            pr_id,
+        )
+
     review_graph = build_review_graph(
         resolve_runtime_settings=resolve_runtime_settings,
         get_vcs_client=get_vcs_client,
@@ -289,7 +313,7 @@ def execute_review_graph(
         retrieve_related_files_context=retrieve_related_files_context,
         retrieve_bounded_code_search_context=retrieve_bounded_code_search_context,
         compose_repository_context_bundle=compose_repository_context_bundle,
-        repository_path=repository_path,
+        repository_path=resolved_repository_path,
         max_changed_files=max_changed_files,
         max_repo_map_files=max_repo_map_files,
         max_repo_map_chars=max_repo_map_chars,
@@ -319,11 +343,12 @@ def execute_review_graph(
         response_state_file=response_state_file,
         response_state_ttl_days=response_state_ttl_days,
         model_endpoint=model_endpoint,
-        react_enabled=react_enabled,
+        react_enabled=effective_react_enabled,
         react_max_draft_iterations=react_max_draft_iterations,
         react_max_judge_iterations=react_max_judge_iterations,
         react_max_tool_calls_per_agent=react_max_tool_calls_per_agent,
         react_max_tool_result_chars=react_max_tool_result_chars,
+        react_require_initial_repository_tool=react_require_initial_repository_tool,
         react_allow_judge_tool_retrieval=react_allow_judge_tool_retrieval,
         react_lazy_repository_context=react_lazy_repository_context,
         react_default_include_changed_files=react_default_include_changed_files,

@@ -52,7 +52,7 @@ Reflex Reviewer has two main parts:
 Architecture highlights:
 - **Execution model**
   - **Graph-orchestrated review runtime:** deterministic stages handle context retrieval, prompt preparation, normalization, and publishing, while LLM stages handle draft and judge inference.
-  - **ReAct-style bounded orchestration:** draft and judge agents run internal **Reason → Act (tool call) → Observe** loops, repeating only until evidence is sufficient within configured iteration and tool-call limits.
+  - **ReAct-style bounded orchestration (repository-aware only):** draft and judge agents run internal **Reason → Act (tool call) → Observe** loops only when `REPOSITORY_PATH` resolves to a valid local repository; otherwise review uses the standard non-ReAct draft/judge path.
 - **Context strategy**
   - **Context-aware zero-shot prompting:** structured prompts combine reviewer persona, review guidelines, PR metadata, diff evidence, and existing root-comment context.
   - **Hybrid repository-aware enrichment:** changed-file bootstrap context is injected early, while heavier repository evidence is retrieved lazily through bounded internal tool calls only when needed.
@@ -123,9 +123,9 @@ The PR review flow is orchestrated by `reflex_reviewer/review.py` through `refle
 
 High-level stages:
 - **Context gathering:** collect PR metadata, diff content, activities, and changed-file information.
-- **Repository enrichment (hybrid):** start with lightweight changed-file bootstrap context, then retrieve heavier repository evidence lazily from `REPOSITORY_PATH` only when needed.
+- **Repository enrichment (hybrid):** start with lightweight changed-file bootstrap context, then retrieve heavier repository evidence lazily from `REPOSITORY_PATH` only when needed. If `REPOSITORY_PATH` is missing/invalid, repository enrichment is safely skipped and ReAct is disabled for that run.
 - **Inference:** prepare prompt inputs, run `draft_reviewer`, normalize findings, and run `evidence_judge`.
-- **Publishing:** build the summary, resolve anchors, apply posting policy, and publish the review.
+- **Publishing:** build the summary, resolve anchors, run `policy_guard_agent`, and publish the review.
 
 Repository enrichment includes:
 - **Bootstrap context (eager):** include changed-file metadata early so agents can reason before expensive retrieval.
@@ -135,14 +135,17 @@ Repository enrichment includes:
 - **On-demand context (lazy):** retrieve heavier evidence through bounded internal tool calls when the agent decides additional validation is needed.
 
 Inference behavior:
-- Draft and judge agents use ReAct-style internal control loops: **Reason → Act (tool call) → Observe**, repeating until evidence is sufficient to return a final review output.
+- When `REPOSITORY_PATH` is valid, draft and judge agents use ReAct-style internal control loops: **Reason → Act (tool call) → Observe**, repeating until evidence is sufficient to return a final review output.
+- With lazy repository context plus `review.react.require_initial_repository_tool=true`, both draft and judge default to calling at least one repository-evidence tool before finalizing when repository sections are deferred (judge side applies when `review.react.allow_judge_tool_retrieval=true`).
+- When `REPOSITORY_PATH` is unset/invalid, the runtime automatically disables ReAct and executes the normal non-ReAct draft/judge flow.
 
 Review behavior worth knowing:
 - **Grounding and repetition control**
   - Existing root comment context from humans and bots is used to reduce repetitive suggestions.
+  - Existing **summary comments** are excluded from root-comment feedback context so they do not influence duplicate/sentiment reasoning.
   - Same-anchor duplicate suppression is enforced in two layers:
     - judge instructions explicitly remove semantically equivalent already-covered bot comments on the same file/line,
-    - `policy_guard` applies deterministic same-anchor near-duplicate filtering before publishing.
+    - `policy_guard_agent` applies final same-anchor near-duplicate filtering and reply-aware prior-comment policy before publishing.
 - **Severity policy**
   - Variable/class/method naming issues are always `ADVISORY`.
   - Any comments on test files/classes are always `ADVISORY` (including Java test paths like `src/test/...` and `*Test.java`).
@@ -150,7 +153,10 @@ Review behavior worth knowing:
   - The same repository context bundle is injected into both the draft and judge prompt paths.
   - Bounded code search helps ground comments in repository-wide usage patterns, reducing speculative feedback.
 - **Publishing behavior**
-  - Every review run posts a fresh summary comment and may also publish inline comments.
+  - Every review run posts a fresh (append-only) summary comment and may also publish inline comments.
+  - Summary comments include a stable marker `<!-- reflex-reviewer-summary -->`.
+  - Canonical summary shape uses three sections: `**Recommendation:**`, `**Review Summary:**`, and `**Checklist**`.
+  - Recommendation display labels are user-facing: `Looks Good` or `Changes Suggested`.
 
 ### 2.3 Review graph diagram
 
@@ -180,7 +186,7 @@ flowchart TB
 
     subgraph publish["Publishing and Guardrails"]
         direction LR
-        summary_builder["summary_builder"] --> anchor_resolver["anchor_resolver"] --> policy_guard["policy_guard"] --> publish_review["publish_review"]
+        summary_builder["summary_builder"] --> anchor_resolver["anchor_resolver"] --> policy_guard_agent["policy_guard_agent<br/>(LLM Policy Guard Agent)"] --> publish_review["publish_review"]
     end
 
     build_repo_map --> compose_repository_context
@@ -194,8 +200,8 @@ flowchart TB
     react_tools -.supports.-> evidence_judge
     prepare_review_inputs -.bootstrap context.-> lazy_note
 
-    class draft_reviewer,evidence_judge llmAgent;
-    class fetch_pr_context,extract_changed_files,build_repo_map,retrieve_related_files,retrieve_code_search_context,compose_repository_context,prepare_review_inputs,finding_normalizer,summary_builder,anchor_resolver,policy_guard deterministic;
+    class draft_reviewer,evidence_judge,policy_guard_agent llmAgent;
+    class fetch_pr_context,extract_changed_files,build_repo_map,retrieve_related_files,retrieve_code_search_context,compose_repository_context,prepare_review_inputs,finding_normalizer,summary_builder,anchor_resolver deterministic;
     class react_loop,react_tools,lazy_note reactMeta;
     class publish_review terminal;
 
@@ -203,7 +209,7 @@ flowchart TB
 ```
 
 Diagram legend:
-- Purple nodes are **bounded ReAct LLM agent nodes** (`draft_reviewer`, `evidence_judge`).
+- Purple nodes are **LLM-backed agent nodes** (`draft_reviewer`, `evidence_judge`, `policy_guard_agent`).
 - Blue nodes are **deterministic orchestration, retrieval, or guardrail nodes**.
 - Amber nodes annotate **internal ReAct control/tooling behavior** and **lazy repository-context bootstrap** semantics.
 - Gray terminal node is the final review publication stage.
@@ -213,11 +219,11 @@ Key grouped stages:
 - **Inference nodes:** `compose_repository_context`, `prepare_review_inputs`, `draft_reviewer` (bounded ReAct), `finding_normalizer`, `evidence_judge` (bounded ReAct)
 - **Internal ReAct retrieval tools:** `get_changed_files`, `get_repo_map`, `get_related_files`, `search_code`, `get_repository_context_bundle`
 - **Lazy context behavior:** changed-files context is available at bootstrap, while heavier repository context can be deferred and fetched on demand through bounded internal tool calls.
-- **Publishing nodes:** `summary_builder`, `anchor_resolver`, `policy_guard`, `publish_review`
+- **Publishing nodes:** `summary_builder`, `anchor_resolver`, `policy_guard_agent`, `publish_review`
 
 ### 2.4 Distill and refine
 
-- **Distill (`reflex_reviewer/distill.py`)** reads PR activities, reconstructs root comment threads, excludes summary comments, applies deterministic Bitbucket reaction-based sentiment overrides (for example thumbs up/down) when available, falls back to LLM thread sentiment classification as `ACCEPTED`, `REJECTED`, or `UNSURE` for unresolved threads, and appends only high-confidence accepted/rejected samples to the DPO dataset.
+- **Distill (`reflex_reviewer/distill.py`)** reads PR activities, reconstructs root comment threads, excludes summary comments (detected by the summary marker and canonical section shape), applies deterministic Bitbucket reaction-based sentiment overrides (for example thumbs up/down) when available, falls back to LLM thread sentiment classification as `ACCEPTED`, `REJECTED`, or `UNSURE` for unresolved threads, and appends only high-confidence accepted/rejected samples to the DPO dataset.
 - **Refine (`reflex_reviewer/refine.py`)** validates dataset readiness, splits training and validation data, starts fine-tuning against the configured backend, monitors job completion, and cleans temporary cache artifacts after success.
 
 ### 2.5 DPO in one paragraph
@@ -281,6 +287,7 @@ Important settings in `reflex_reviewer.toml`:
   - `max_tool_calls_per_agent` (default: `8`)
   - `max_tool_result_chars` (default: `12000`)
   - `default_include_changed_files` (default: `true`)
+  - `require_initial_repository_tool` (default: `true`)
   - `allow_judge_tool_retrieval` (default: `true`)
   - `lazy_repository_context` (default: `true`)
 
@@ -288,9 +295,10 @@ Important behavior notes:
 - `--dpo-training-data-dir` is the parent directory for team-specific DPO datasets.
 - `LLM_API_KEY` enables direct API-key auth; otherwise runtime falls back to OAuth2 token auth.
 - `LLM_API_READ_TIMEOUT_SECONDS` can override the TOML socket read timeout.
-- `REPOSITORY_PATH` points repository-aware review at a local checkout; if unset or invalid, review safely continues with PR context only.
+- `REPOSITORY_PATH` points repository-aware review at a local checkout; if unset or invalid, review safely continues with PR context only and ReAct is automatically disabled.
 - `REPOSITORY_IGNORE_DIRECTORIES` adds comma-separated directory names to exclude during repository code-search scanning, in addition to built-in default ignore directories.
-- ReAct mode uses a changed-files bootstrap context by default and retrieves heavier repository context lazily through bounded internal tool calls.
+- ReAct mode is repository-aware: it runs only when `REPOSITORY_PATH` is valid, uses a changed-files bootstrap context by default, and retrieves heavier repository context lazily through bounded internal tool calls.
+- When `review.react.require_initial_repository_tool=true` and lazy repository context is active, draft and judge ReAct must make at least one repository-evidence tool call (`get_repo_map`, `get_related_files`, `search_code`, or `get_repository_context_bundle`) before finalizing when repository context is deferred; judge enforcement applies only when `review.react.allow_judge_tool_retrieval=true`.
 
 To enable repository-aware review context in practice, export `REPOSITORY_PATH` to the checked-out repository you want Reflex Reviewer to inspect. Example:
 
@@ -298,7 +306,7 @@ To enable repository-aware review context in practice, export `REPOSITORY_PATH` 
 export REPOSITORY_PATH="/absolute/path/to/checked-out-repository"
 ```
 
-Without `REPOSITORY_PATH`, review still runs, but repository map, related-file retrieval, and bounded code-search enrichment are skipped.
+Without `REPOSITORY_PATH`, review still runs, but repository map, related-file retrieval, and bounded code-search enrichment are skipped, and ReAct loops are not used.
 
 Repository-aware context defaults are intentionally configurable and now tuned for larger context-window backends. If your runtime has strict latency or token-cost limits, lower `[review.repository_context]` char/result caps in `reflex_reviewer.toml`.
 
